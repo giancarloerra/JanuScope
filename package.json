@@ -74,11 +74,11 @@
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
-    "zod": "^3.23.8"
+    "zod": "^4.4.3"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^11.3.0",
-    "mysql2": "^3.11.3",
+    "better-sqlite3": "^12.9.0",
+    "mysql2": "^3.22.3",
     "pg": "^8.13.0"
   },
   "devDependencies": {
@@ -90,7 +90,7 @@
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.8.0",
     "@typescript-eslint/parser": "^8.8.0",
-    "better-sqlite3": "^11.3.0",
+    "better-sqlite3": "^12.9.0",
     "eslint": "^9.11.1",
     "prettier": "^3.3.3",
     "release-it": "^20.0.1",
