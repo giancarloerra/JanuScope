@@ -24,13 +24,13 @@ Initial public release of the core engine and bundled Lens catalogue.
 
 ### Lenses
 
-11 bundled Lenses, one per service, each pointing at the official vendor MCP where one exists:
+12 bundled Lenses, one per service, each pointing at the official vendor MCP where one exists:
 
-- **Databases**: `postgres-crystaldba`, `mysql-benborla29`, `mongodb-official`, `clickhouse-official`, `sqlite-panasenco`
+- **Databases**: `postgres-crystaldba`, `mysql-benborla29`, `mongodb-official`, `clickhouse-official`, `redis-official`, `sqlite-panasenco`
 - **Developer tools**: `github-official`, `filesystem-mcp-official`
 - **SaaS**: `stripe-official`, `notion-official`, `atlassian-official`, `linear-remote`
 
-All 11 live-probed against real target MCPs with `validate:lenses:probe`.
+All 12 live-probed against real target MCPs with `validate:lenses:probe`.
 
 ### CLI
 
