@@ -27,8 +27,17 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      # `npm install` (not `npm ci`) is deliberate. `npm ci` strictly
+      # follows the lockfile and won't install platform-specific optional
+      # dependencies that weren't recorded when the lockfile was generated.
+      # Since lockfiles are typically generated on the maintainer's machine
+      # (macOS / Windows), `npm ci` on Linux runners fails to install the
+      # Linux rollup binary that vitest needs (npm/cli#4828).
+      # `npm install` resolves optional deps for the current platform.
+      # Trade-off: lockfile becomes advisory rather than strict; we accept
+      # this for cross-platform CI.
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       # Supply-chain gate. Runs before functional checks so a PR that
       # introduces a known-vulnerable runtime dep, or a tampered package
