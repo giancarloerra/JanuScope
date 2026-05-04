@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a new capability or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement. We care more about the problem than
+        the solution: a clear "what are you trying to do and why is it hard today"
+        helps us evaluate the right shape of the fix.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and why is it hard today?
+      placeholder: |
+        I want to deploy JanuScope behind <X> but the current <overlay/feature>
+        doesn't cover <Y> case. Specifically...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Rough sketch of what you'd want. A specific YAML shape, a CLI flag, an overlay pattern.
+      placeholder: |
+        Add a <foo> overlay that <does X>. Or: extend `redact` to support <Y>.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: If you've thought of other ways to solve the same problem, list them.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Which part of JanuScope would this touch?
+      options:
+        - Core engine (overlay pipeline, transport, config)
+        - New overlay
+        - Existing bundled lens (improvement)
+        - New bundled lens (use the lens-request template instead)
+        - Documentation
+        - CI / tooling
+        - Not sure yet
+    validations:
+      required: true

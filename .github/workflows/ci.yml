@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20", "22"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Supply-chain gate. Runs before functional checks so a PR that
+      # introduces a known-vulnerable runtime dep, or a tampered package
+      # whose npm-registry signature doesn't verify, fails fast.
+      #
+      # `--omit=dev` ignores dev-only deps (vitest, eslint, prettier, ...);
+      # those don't ship to users and are tracked separately by Dependabot.
+      # `--audit-level=high` matches the threshold a security-positioned
+      # tool should not regress past. Moderate dev-dep vulns are still
+      # surfaced by `npm audit` locally and by Dependabot's weekly PR
+      # cadence.
+      - name: Supply-chain audit (runtime deps)
+        run: npm audit --audit-level=high --omit=dev
+
+      # Verifies every installed package's npm-registry signature and any
+      # provenance attestation. Catches a compromised registry / tampered
+      # tarball; complements `npm audit` (which only catches *known* CVEs).
+      - name: Supply-chain audit (registry signatures)
+        run: npm audit signatures
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Validate bundled lenses (static)
+        run: npm run validate:lenses
+
+      - name: Build
+        run: npm run build

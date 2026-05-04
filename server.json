@@ -1,0 +1,51 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.giancarloerra/januscope",
+  "description": "Local MCP policy proxy. Wraps any stdio MCP server with one YAML lens that adds tool blocking, SQL read-only filtering, output redaction, audit logging, rate limiting, OpenTelemetry tracing, and database-schema injection. No hosted gateway in the data path; tool traffic stays on the operator's machine.",
+  "repository": {
+    "url": "https://github.com/giancarloerra/januscope",
+    "source": "github"
+  },
+  "version": "0.3.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "januscope",
+      "version": "0.3.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "name": "--config",
+          "description": "Absolute path to the lens config YAML. The lens declares the target MCP to wrap and the policy overlays to apply. Bundled lenses live under lenses/ in the repo and via `januscope lenses list` after install.",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "JANUSCOPE_USER",
+          "description": "Optional identity attribution stamped onto every audit record. Free-form operator identifier (email, employee id) for SIEM joins. Omitted from records when unset.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "JANUSCOPE_TEAM",
+          "description": "Optional org / team / cost-centre identifier stamped onto every audit record. Omitted when unset.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "JANUSCOPE_SESSION",
+          "description": "Optional client-side correlation id stamped onto every audit record. Useful for cross-process tracing.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

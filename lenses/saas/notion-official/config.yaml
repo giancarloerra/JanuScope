@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Notion — OFFICIAL MCP (hosted remote at mcp.notion.com/mcp)
+# https://developers.notion.com/guides/mcp/get-started-with-mcp
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# This is Notion's officially-supported MCP. Per Notion's own docs
+# (2026-04-19):
+#   "Notion is prioritizing, and only providing active support for,
+#    Notion MCP (remote)."
+#
+# Remote-only (Streamable HTTP at https://mcp.notion.com/mcp), so
+# JanuScope v0.3 wraps it via the mcp-remote stdio↔HTTP bridge.
+# OAuth in browser on first launch; cached token in ~/.mcp-auth/
+# for subsequent runs. 18 curated tools, `notion-*` prefix.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mcp-remote"
+    - "https://mcp.notion.com/mcp"
+  env: {}
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: internal
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY access to the Notion workspace. Do not attempt to
+    create, update, or delete pages, databases, blocks, or comments.
+    Any write is blocked by the proxy.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to the
+    Notion workspace for this session. If an operation cannot be
+    performed through the tools listed here, that is the policy
+    answer — report the refusal and stop. Do NOT bypass via other
+    tool surfaces: terminal, `curl` against `api.notion.com` using
+    the NOTION_TOKEN / NOTION_API_KEY environment variable, shell
+    scripts, or a sibling Notion MCP. Notion pages contain pasted
+    credentials often enough that the redact overlay is doing real
+    work on the response path; reaching around it returns the page
+    text unscrubbed.
+
+    Notion pages often contain pasted secrets (onboarding docs,
+    runbooks, credential lists). When summarising, redact anything
+    that looks like an API key, PAT, AWS/GCP key, PEM header, or
+    `.env`-style `password=` assignment.
+
+  position: prepend
+# Verified against live tools/list on 2026-04-19 — the remote MCP
+# exposes 14 tools using `notion-` prefix + kebab-case. All 9 real
+# writes are caught by these four globs:
+#   notion-create-*   → create-pages, create-database, create-comment,
+#                       create-view
+#   notion-update-*   → update-page, update-data-source, update-view
+#   notion-move-*     → move-pages
+#   notion-duplicate-*→ duplicate-page
+# Defensive forward-looking entries below (notion-delete-*, notion-add-*,
+# notion-remove-*, notion-archive-*) match nothing in the current MCP —
+# Notion uses update+trashed=true for soft-delete rather than a dedicated
+# delete tool — kept in case the upstream adds them.
+block:
+  - "notion-create-*"
+  - "notion-update-*"
+  - "notion-move-*"
+  - "notion-duplicate-*"
+  # Forward-looking defensive (no current tool matches)
+  - "notion-delete-*"
+  - "notion-archive-*"
+  - "notion-add-*"
+  - "notion-remove-*"
+  - "notion-patch-*"
+
+redact:
+  rules:
+    - regex: "secret_[A-Za-z0-9]{43}" # Notion integration token
+    - regex: "ntn_[A-Za-z0-9]{40,}" # Notion fine-grained token
+    - regex: "ghp_[A-Za-z0-9]{36,}"
+    - regex: "github_pat_[A-Za-z0-9_]{82,}"
+    - regex: "AKIA[0-9A-Z]{16}"
+    - regex: 'AIza[0-9A-Za-z_\-]{35}'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "sk_test_[A-Za-z0-9]{24,}"
+    - regex: "xox[baprs]-[0-9A-Za-z-]{10,}"
+    - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'
+    - regex: '(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token)\s*[:=]\s*[''"][^''"\s]{8,}[''"]'
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-notion.jsonl"
+  logRawArgs: false

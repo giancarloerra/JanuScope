@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/giancarloerra/januscope/blob/main/schemas/audit-event.json",
+  "title": "JanuScope audit event",
+  "description": "One line of the JanuScope JSONL audit log. Mirrors the `AuditEvent` TypeScript type exported from the `januscope` package. Consumers building SIEM ingesters should validate each line against this schema before parsing.",
+  "oneOf": [
+    { "$ref": "#/$defs/Startup" },
+    { "$ref": "#/$defs/Shutdown" },
+    { "$ref": "#/$defs/ToolsCallOk" },
+    { "$ref": "#/$defs/ToolsCallError" },
+    { "$ref": "#/$defs/ToolsCallTimeout" },
+    { "$ref": "#/$defs/ToolsCallOrphaned" }
+  ],
+  "$defs": {
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp; same string the overlay generates with Date.toISOString()."
+    },
+    "ArgsHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{16}$",
+      "description": "sha256:<first-16-hex-chars> of the canonical-JSON of the tool's arguments. Stable across argument key ordering."
+    },
+    "Classification": {
+      "enum": ["public", "internal", "sensitive"],
+      "description": "Lens data-sensitivity label, inherited from OverlayConfig.classification. Present on every record when the lens sets it; omitted otherwise."
+    },
+    "Identity": {
+      "type": "object",
+      "description": "Optional identity attribution captured at overlay setup from JANUSCOPE_USER / JANUSCOPE_TEAM / JANUSCOPE_SESSION env vars. Each field is independently optional and omitted when its env var is unset / empty. Pre-existing audit consumers parsing the legacy shape are unaffected. Composed into the event types via `allOf`; strict 'no extra properties' is enforced at the composed-event level via `unevaluatedProperties: false` (Draft 2020-12 idiom for `allOf` composition — `additionalProperties: false` here would reject every field defined in the sibling subschema).",
+      "properties": {
+        "user": {
+          "type": "string",
+          "description": "Free-form operator identifier (username, email, employee id). SIEM ingesters typically join this against an HRIS / IDP table."
+        },
+        "team": {
+          "type": "string",
+          "description": "Org / team / cost-centre attribution."
+        },
+        "session": {
+          "type": "string",
+          "description": "Client-side correlation id (e.g. an MCP-client session uuid). Enables cross-process tracing without distributed-tracing infrastructure."
+        }
+      }
+    },
+    "ToolsCallBase": {
+      "allOf": [
+        { "$ref": "#/$defs/Identity" },
+        {
+          "type": "object",
+          "required": ["ts", "event", "tool", "id", "args_hash"],
+          "properties": {
+            "ts": { "$ref": "#/$defs/Timestamp" },
+            "event": { "const": "tools/call" },
+            "tool": {
+              "type": "string",
+              "description": "Tool name from params.name, or '<unknown>' if absent."
+            },
+            "id": {
+              "oneOf": [{ "type": "string" }, { "type": "number" }],
+              "description": "JSON-RPC request id used for request/response correlation."
+            },
+            "args_hash": { "$ref": "#/$defs/ArgsHash" },
+            "args": {
+              "description": "Raw arguments. Present only when the overlay is configured with logRawArgs: true. Opaque JSON — may contain secrets."
+            },
+            "classification": { "$ref": "#/$defs/Classification" }
+          }
+        }
+      ]
+    },
+    "Startup": {
+      "allOf": [
+        { "$ref": "#/$defs/Identity" },
+        {
+          "type": "object",
+          "required": ["ts", "event", "sink"],
+          "properties": {
+            "ts": { "$ref": "#/$defs/Timestamp" },
+            "event": { "const": "startup" },
+            "sink": {
+              "type": "string",
+              "description": "Configured sink string: 'stdout', 'stderr', or a file path."
+            },
+            "classification": { "$ref": "#/$defs/Classification" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Shutdown": {
+      "allOf": [
+        { "$ref": "#/$defs/Identity" },
+        {
+          "type": "object",
+          "required": ["ts", "event"],
+          "properties": {
+            "ts": { "$ref": "#/$defs/Timestamp" },
+            "event": { "const": "shutdown" },
+            "classification": { "$ref": "#/$defs/Classification" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ToolsCallOk": {
+      "allOf": [
+        { "$ref": "#/$defs/ToolsCallBase" },
+        {
+          "type": "object",
+          "required": ["status", "duration_ms", "result_bytes"],
+          "properties": {
+            "status": { "enum": ["ok", "tool_error"] },
+            "duration_ms": { "type": "number", "minimum": 0 },
+            "result_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "UTF-8 byte count of the serialised result (not character count)."
+            }
+          }
+        }
+      ]
+    },
+    "ToolsCallError": {
+      "allOf": [
+        { "$ref": "#/$defs/ToolsCallBase" },
+        {
+          "type": "object",
+          "required": ["status", "duration_ms", "error"],
+          "properties": {
+            "status": { "const": "error" },
+            "duration_ms": { "type": "number", "minimum": 0 },
+            "error": {
+              "type": "object",
+              "required": ["code", "message"],
+              "properties": {
+                "code": { "type": "integer" },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ToolsCallTimeout": {
+      "allOf": [
+        { "$ref": "#/$defs/ToolsCallBase" },
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "timeout" }
+          }
+        }
+      ]
+    },
+    "ToolsCallOrphaned": {
+      "allOf": [
+        { "$ref": "#/$defs/ToolsCallBase" },
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "orphaned" }
+          }
+        }
+      ]
+    }
+  }
+}

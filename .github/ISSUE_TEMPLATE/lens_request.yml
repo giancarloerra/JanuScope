@@ -1,0 +1,73 @@
+name: Lens request
+description: Ask for a bundled lens for a specific MCP
+title: "[Lens]: "
+labels: ["lens"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a lens. The more context you can give about
+        the target MCP — its tool surface, its write-capable defaults, any
+        gotchas — the more likely a maintainer or community contributor
+        picks it up. If you'd rather write the lens yourself, see the
+        [authoring guide](https://github.com/giancarloerra/januscope/blob/main/lenses/CONTRIBUTING.md).
+
+  - type: input
+    id: package
+    attributes:
+      label: MCP package or image
+      description: npm package name, ghcr.io image, PyPI name, or repo URL.
+      placeholder: "@modelcontextprotocol/server-foo, ghcr.io/example/foo-mcp, ..."
+    validations:
+      required: true
+
+  - type: input
+    id: homepage
+    attributes:
+      label: Homepage / docs URL
+      placeholder: "https://github.com/example/foo-mcp"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: maintainer_status
+    attributes:
+      label: Upstream maintainer
+      options:
+        - Vendor-official (e.g. Stripe, Linear, GitHub maintain it)
+        - Community-maintained
+        - Archived or unmaintained
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: value
+    attributes:
+      label: Why this lens would be valuable
+      description: |
+        Which dangerous tools does the MCP expose by default? What sensitive data
+        does it return? What policy gaps would a lens fill?
+      placeholder: |
+        The MCP exposes `delete_record`, `bulk_update`, and a generic
+        `arbitrary_api_call` tool. Returned objects include `email`, `phone`,
+        and `tax_id` fields...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tools_list
+    attributes:
+      label: tools/list output (optional)
+      description: |
+        If you've run the target MCP, paste the JSON-RPC `tools/list` response
+        here. This dramatically speeds up lens authoring.
+      render: json
+
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Blockers or gotchas
+      description: |
+        Anything tricky? Auth flow? Tool naming inconsistencies? Hidden side
+        effects? Tool surface that changes between versions?

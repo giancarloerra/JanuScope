@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────────────────
+# ClickHouse — official mcp-clickhouse
+# https://github.com/ClickHouse/mcp-clickhouse · https://pypi.org/project/mcp-clickhouse/
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Official ClickHouse MCP from ClickHouse Inc. Read-only by default;
+# writes require an explicit opt-in flag on the server side. Even with
+# that default, we keep sqlGuard + PII redaction on so a future config
+# change or a user flip can't surprise you.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: uvx
+  args:
+    - "mcp-clickhouse"
+  env:
+    CLICKHOUSE_HOST: "${CLICKHOUSE_HOST}"
+    CLICKHOUSE_PORT: "${CLICKHOUSE_PORT}"
+    CLICKHOUSE_USER: "${CLICKHOUSE_USER}"
+    CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+    CLICKHOUSE_DATABASE: "${CLICKHOUSE_DATABASE}"
+    CLICKHOUSE_SECURE: "true"
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY ClickHouse access. Only SELECT / WITH queries are
+    permitted — any mutation (INSERT, ALTER, DROP, TRUNCATE, OPTIMIZE,
+    KILL, SYSTEM commands, CREATE / RENAME / DETACH) will be rejected
+    by the proxy.
+
+    ClickHouse is a column-store analytics engine — prefer aggregates
+    (count, sum, avg, quantile, uniqExact) over row-level enumeration.
+    Always include a LIMIT when browsing wide tables.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    ClickHouse cluster. If an operation cannot be performed through
+    the tools listed here, that is the policy answer — report the
+    refusal and stop. Do NOT bypass via other tool surfaces: terminal,
+    `clickhouse-client`, `clickhouse-local`, shell scripts, `curl`
+    against the HTTP interface (port 8123/8443), or a sibling
+    ClickHouse MCP. The proxy can only enforce what flows through it.
+
+    Never query, return, summarise, or echo columns that look like
+    personally identifiable information: email, phone, ssn, password,
+    api_key, access_token.
+
+    Default LIMIT 100 unless the user explicitly asks for more.
+
+  position: prepend
+# SQL-level backstop. Verified live against `ClickHouse/mcp-clickhouse`
+# on 2026-04-19 — the MCP exposes exactly three tools:
+#   list_databases, list_tables, run_query
+# The arbitrary-SQL surface is `run_query`; the two list_* tools are
+# metadata reads. Older releases / community forks sometimes shipped
+# `run_chdb_select_query` or `run_select_query` — forward-looking
+# defensive entries below cover those at zero cost (sqlGuard is a
+# no-op on tool names that don't exist in the installed MCP).
+sqlGuard:
+  tools:
+    - run_query # live tool, current MCP
+    - run_chdb_select_query # defensive — older/fork variant
+    - run_select_query # defensive — older/fork variant
+  sqlArg: query
+  readOnly: true
+  # ClickHouse-specific write-ish leading verbs (OPTIMIZE, DETACH, ATTACH,
+  # KILL, SYSTEM) are already rejected by the default allowlist mode —
+  # only SELECT / WITH / SHOW / EXPLAIN / DESCRIBE / VALUES pass. No
+  # extraWriteKeywords needed here (that option is denylist-mode only).
+
+redact:
+  rules:
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    - regex: '\b\d{3}-\d{2}-\d{4}\b'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "AKIA[0-9A-Z]{16}"
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.ssn"
+    - field: "**.password"
+    - field: "**.api_key"
+    - field: "**.access_token"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-clickhouse.jsonl"
+  logRawArgs: false

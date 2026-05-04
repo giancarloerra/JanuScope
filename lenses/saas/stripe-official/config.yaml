@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Stripe — official @stripe/mcp
+# https://docs.stripe.com/mcp · https://www.npmjs.com/package/@stripe/mcp
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Stripe's own MCP. Stripe's API surface is split between read and
+# write endpoints — the MCP exposes both, so this lens locks writes
+# down and preserves read coverage. Stripe data is financial and
+# regulated: expect your security team to ask about audit trails.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "@stripe/mcp"
+  env:
+    # Pass the key via env, NOT --api-key=…. CLI arguments show up in
+    # `ps aux`, process accounting, and any crash-dump that captures
+    # argv; env vars don't. The @stripe/mcp binary reads
+    # STRIPE_SECRET_KEY as a documented fallback when --api-key is
+    # absent (see `apiKey = options.apiKey || process.env.STRIPE_SECRET_KEY`
+    # in its cli.js). Still put a *restricted* key (rk_*) here, not
+    # a full sk_*; see below.
+    STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY}"
+  # Tool-surface gating lives UPSTREAM in Stripe's Restricted API Key
+  # (RAK) system, not in this config. The MCP's former `--tools=all`
+  # flag was removed in @stripe/mcp 0.3+ and is now a no-op (the
+  # binary prints a deprecation line on startup). Use a restricted
+  # key — `rk_*` scoped to read-only on the specific resources you
+  # want — as the primary defence layer. The `block:` rules below
+  # are the proxy-layer backstop. See the lens README for the full
+  # three-layer model and the dashboard link for creating a RAK.
+  # Never put live secret keys into a lens that will be shared /
+  # committed.
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY Stripe access. Do not attempt to create, update, void,
+    refund, cancel, pay out, or otherwise mutate Stripe objects
+    (customers, charges, payment intents, refunds, subscriptions,
+    invoices, payouts, products, prices, coupons). Every write tool
+    is blocked by the proxy.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to Stripe
+    for this session. If an operation cannot be performed through the
+    tools listed here, that is the policy answer — report the refusal
+    and stop. Do NOT bypass via other tool surfaces: terminal,
+    `stripe` CLI, shell scripts, `curl` against `api.stripe.com` (the
+    STRIPE_SECRET_KEY environment variable would Just Work, which is
+    exactly the bypass we're prohibiting), or a sibling Stripe MCP.
+    Stripe writes move money — defence in depth here is non-optional.
+
+    Never return, summarise, or echo raw values that look like:
+    - Stripe API keys (sk_live_*, sk_test_*, rk_*)
+    - Full card numbers or card PANs
+    - Full customer email addresses or phone numbers
+    - US SSNs or equivalent tax IDs
+
+    When asked about specific customers or payments, answer with
+    identity-preserving references (customer ID, payment intent ID,
+    last-4 of card) rather than contact details or full card numbers.
+
+    Prefer aggregate endpoints (lists with filters) over enumerating
+    individual entities.
+
+  position: prepend
+# Verified against live tools/list on 2026-04-18 (@stripe/mcp --tools=all).
+# Real write-capable tools: create_customer / create_product / create_price
+# / create_payment_link / create_invoice / create_invoice_item /
+# finalize_invoice / create_refund / cancel_subscription /
+# update_subscription / create_coupon / update_dispute / stripe_api_execute.
+block:
+  # Glob patterns cover the common create / update / delete / cancel
+  # / refund verbs across resource types.
+  - "create_*"
+  - "update_*"
+  - "delete_*"
+  - "cancel_*"
+  - "refund_*"
+  - "void_*"
+  - "pay_*"
+  - "capture_*"
+  - "confirm_*"
+  - "attach_*"
+  - "detach_*"
+  - "release_*"
+  # Explicit writes the globs do not catch by prefix.
+  - finalize_invoice # completes an invoice (state mutation)
+  - stripe_api_execute # CRITICAL: arbitrary POST / PUT /
+    # DELETE against any Stripe endpoint.
+    # A proxy-layer Lens cannot make this
+    # tool safe — the write vector is the
+    # HTTP method + URL, not the tool name.
+  - send_stripe_mcp_feedback # side effect (posts to Stripe)
+  # Defensive literals in case of naming drift in forks / future versions
+  - create_charge
+  - create_refund
+  - create_payout
+  - update_customer
+  - cancel_subscription
+  - delete_customer
+
+# Redact: Stripe API keys, card patterns, emails, phones.
+redact:
+  rules:
+    - regex: "sk_live_[A-Za-z0-9]{24,}" # live secret key
+    - regex: "sk_test_[A-Za-z0-9]{24,}" # test secret key
+    - regex: "rk_live_[A-Za-z0-9]{24,}" # restricted live key
+    - regex: "rk_test_[A-Za-z0-9]{24,}" # restricted test key
+    - regex: '\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b' # card PAN (Luhn-shape)
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}' # email
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.card_number"
+    - field: "**.cvc"
+    - field: "**.exp_year"
+    - field: "**.iin"
+    - field: "**.fingerprint"
+    - field: "**.tax_id"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-stripe.jsonl"
+  logRawArgs: false

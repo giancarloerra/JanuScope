@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Filesystem — @modelcontextprotocol/server-filesystem (official)
+# https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# The official filesystem MCP reads and writes files in one or more
+# allowed directories. Obvious value from a read-only Lens: the MCP
+# itself has no safety rail beyond the allow-list of directories
+# passed at startup — inside those directories, the LLM can write,
+# edit, and delete freely.
+#
+# This Lens: locks writes, scrubs secrets from file contents.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-filesystem"
+    - "${FILESYSTEM_ALLOWED_DIR}"
+  # Additional allowed dirs can be passed as further args, e.g.:
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects", "/Users/you/docs"]
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY access to the configured directories. Do not attempt to
+    write files, edit files, create files, delete files, move files,
+    or create directories. Every mutation tool is blocked by the proxy.
+
+    SURFACE BOUNDARY. For the duration of this session this MCP is
+    the sanctioned path to the configured directories. If an operation
+    cannot be performed through the tools listed here, that is the
+    policy answer — report the refusal and stop. Do NOT bypass via
+    other tool surfaces to read or write files inside the same tree:
+    terminal `cat` / `head` / `tail` / `cp` / `mv` / `rm` / `chmod`,
+    shell scripts, an editor's open-and-save, or another filesystem-
+    shaped MCP rooted in the same path. The proxy applies the secret
+    redactor to file contents on the way out; routing the read through
+    a different tool returns the file unredacted.
+
+    When showing file contents, scrub anything that looks like a
+    credential, API key, personal access token, private-key header,
+    or `.env` value — even if it appears in the file as-committed.
+    If asked to print an entire large file, prefer a targeted
+    excerpt (the user's actual question) over dumping the whole file.
+
+    Do not follow symlinks out of the allowed tree. If a path lookup
+    returns an unexpected location, stop and report rather than
+    continuing.
+
+  position: prepend
+# Verified against `tools/list` on 2026-04-18. The current
+# @modelcontextprotocol/server-filesystem exposes these mutation
+# tools: write_file, edit_file, create_directory, move_file.
+# It does NOT expose delete_file / delete_directory / rename_file
+# (rename is done via move_file). Globs below are forward-looking
+# defensive patterns — they match nothing today but catch future
+# additions like `delete_file` if the upstream adds one.
+block:
+  # Writes the MCP exposes today
+  - write_file
+  - edit_file
+  - create_directory
+  - move_file
+  # Defensive globs (match no current tool — that's intentional)
+  - "write_*"
+  - "edit_*"
+  - "delete_*"
+  - "create_*"
+  - "move_*"
+  - "rename_*"
+
+# Filesystems are where every secret pattern lives. Maximum coverage.
+redact:
+  rules:
+    # Cloud keys
+    - regex: "AKIA[0-9A-Z]{16}" # AWS access key ID
+    - regex: "ASIA[0-9A-Z]{16}" # AWS temporary credentials
+    - regex: 'AIza[0-9A-Za-z_\-]{35}' # Google API key
+    # Source-control / CI tokens
+    - regex: "ghp_[A-Za-z0-9]{36,}" # GitHub PAT (classic)
+    - regex: "github_pat_[A-Za-z0-9_]{82,}" # GitHub fine-grained PAT
+    - regex: "ghs_[A-Za-z0-9]{36,}" # GitHub App installation
+    - regex: "gho_[A-Za-z0-9]{36,}" # GitHub OAuth
+    - regex: 'glpat-[A-Za-z0-9_\-]{20,}' # GitLab PAT
+    # Payment / comms
+    - regex: "sk_live_[A-Za-z0-9]{24,}" # Stripe live secret
+    - regex: "sk_test_[A-Za-z0-9]{24,}" # Stripe test secret
+    - regex: "rk_live_[A-Za-z0-9]{24,}" # Stripe restricted live
+    - regex: "xox[baprs]-[0-9A-Za-z-]{10,}" # Slack tokens
+    - regex: 'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}' # SendGrid
+    - regex: "key-[0-9a-z]{32}" # Mailgun
+    # Crypto
+    - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+    - regex: "-----BEGIN CERTIFICATE-----"
+    # Database URLs (leaky connection strings)
+    - regex: 'postgres(ql)?://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'mysql://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'mongodb(\+srv)?://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'redis://[^\s:]+:[^\s@]+@[^\s/]+'
+    # Generic .env-style assignments
+    - regex: '(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?key)\s*[:=]\s*[''"][^''"\s]{8,}[''"]'
+    # JWT tokens
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-filesystem.jsonl"
+  logRawArgs: false

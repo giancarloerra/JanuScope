@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────────
+# TEMPLATE — copy this folder into the right category and edit.
+# See ../CONTRIBUTING.md for the full submission guide.
+#
+# Use with (after renaming the folder):
+#   januscope --config ./<category>/<mcp-name>/config.yaml
+# ─────────────────────────────────────────────────────────────────────────
+
+# REQUIRED — the MCP server this lens wraps.
+target:
+  command: npx
+  args:
+    - "-y"
+    - "<the-package-name-of-the-mcp-you-are-wrapping>"
+  # Optional environment passed to the target process. Use ${VAR} to
+  # avoid hardcoded secrets — see README.md frontmatter for required vars.
+  # Alongside plain env vars, three credential-vault references are
+  # supported (resolved at startup, requires `januscope --config …`
+  # which uses the async loader):
+  #   ${vault://<mount>/<path>#<field>}      HashiCorp Vault (KV v2)
+  #   ${aws-sm://<arn-or-name>#<field>}      AWS Secrets Manager
+  #   ${1pw://vaults/<v>/items/<i>/fields/<f>}  1Password
+  env: {}
+
+# OPTIONAL — data-sensitivity label. One of:
+#   public      non-sensitive data; normal care applies
+#   internal    internal data; don't expose raw values to end users
+#   sensitive   PII / financial / regulated data; aggregate answers only
+# When set, the `instructions` overlay prepends a banner to the policy
+# text the LLM sees, and every `audit` record is tagged with the value
+# so downstream SIEMs can route by label.
+# classification: internal
+
+# OPTIONAL — first-use quarantine. Uncomment to fingerprint the static
+# lens surface on first launch; subsequent launches with a different
+# surface refuse to start until you re-run `januscope approve
+# --config <path>`. Defends against tool-poisoning (a malicious MCP
+# quietly adding a tool between runs).
+# firstRun: approve
+
+# OPTIONAL — tool names to hide from tools/list and reject on tools/call.
+# Glob syntax: `admin_*` matches any tool starting with `admin_`.
+# Delete this section entirely if the target MCP is already read-only.
+block:
+  - <dangerous-tool>
+  - "<dangerous-prefix>_*"
+
+# OPTIONAL — policy text appended to every tool's description.
+# Keep it short; this ends up in every prompt.
+instructions: |
+  READ-ONLY. Describe any per-MCP behavioural guidance here.
+
+# OPTIONAL — introspect a database at startup and splice the schema
+# into the SQL tool's description. Remove this section entirely if
+# the target MCP is not a database.
+#
+# dbSchema:
+#   driver: postgres|mysql|sqlite
+#   connectionString: "${DB_URL}"
+#   tables: [<allowlist>]
+#   injectInto: [<the-MCP's-query-tool-name>]
+#   format: markdown
+#   includeComments: true
+#   refresh: startup
+
+# OPTIONAL — keyword-level SQL mutation guard. Use when the target MCP
+# exposes a single SQL tool that accepts arbitrary SQL (e.g. `query` or
+# `execute_sql`). `block` alone cannot distinguish SELECT from UPDATE
+# through one tool; sqlGuard fills that gap by rejecting statements
+# containing write keywords (UPDATE/DELETE/INSERT/DROP/CREATE/ALTER/
+# TRUNCATE/GRANT/...).
+#
+# sqlGuard:
+#   tools: [<the-MCP's-SQL-tool-name>]
+#   sqlArg: sql                          # key in arguments that holds the SQL
+#   readOnly: true
+
+# OPTIONAL — per-tool rate limits (token-bucket, per tool, per minute).
+# Use this to protect a backend from an LLM stuck in a retry loop, or
+# to cap traffic on expensive tools. First matching rule wins; each
+# distinct tool name gets its own bucket so a catch-all `"*"` rule
+# does not let one hot tool starve the others.
+#
+# rateLimit:
+#   - tool: "<expensive-tool>"
+#     perMinute: 10
+#   - tool: "*"                          # catch-all
+#     perMinute: 300
+
+# OPTIONAL — regex / field-path rules applied to tool results before
+# they leave the proxy. Each rule SHOULD have a comment explaining it.
+# Delete this entire `redact:` section if the wrapped MCP never returns
+# sensitive values (weather data, documentation, a read-only timer,
+# etc.) — otherwise you pay a regex scan on every response for no gain.
+redact:
+  rules:
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - field: "**.email" # email field at any depth
+  replacement: "[REDACTED]"
+  applyTo: text
+
+# OPTIONAL — audit log sink.
+audit:
+  sink: "~/mcp-audit-<mcp-name>.jsonl"
+  logRawArgs: false
+
+# OPTIONAL — OpenTelemetry tracing. Omit this block entirely for
+# zero-overhead (the pipeline uses a no-op tracer by default). Peer
+# deps are installed only when you use this:
+#   npm install @opentelemetry/api @opentelemetry/sdk-trace-base \
+#               @opentelemetry/exporter-trace-otlp-http \
+#               @opentelemetry/resources
+#
+# telemetry:
+#   otel:
+#     endpoint: "http://otel-collector:4318/v1/traces"
+#     serviceName: "<mcp-name>"
+#     headers: {}

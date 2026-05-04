@@ -1,0 +1,215 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Redis: official redis/mcp-redis (data plane)
+# https://github.com/redis/mcp-redis · https://redis.io/docs/latest/integrate/redis-mcp/
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Redis Inc.'s official MCP. Exposes data-plane tools (string / hash /
+# list / set / sorted-set / stream / JSON / pub-sub / vector search)
+# against any Redis-protocol endpoint. Connects via redis:// (plain)
+# or rediss:// (TLS); the same URL works against self-hosted Redis,
+# AWS ElastiCache, Redis Cloud, AND Upstash Redis (Upstash speaks
+# the standard Redis protocol over TLS at port 6379).
+#
+# Runtime is `uvx`, not npx, because the MCP is published on PyPI as
+# `redis-mcp-server`, not on npm.
+#
+# This lens locks the surface to read-only, scrubs PII / secret
+# patterns out of returned values (Redis is a frequent home for
+# session tokens and hot-cache PII), and audits every call. No
+# `sqlGuard` (Redis isn't SQL) and no `dbSchema` (Redis is
+# schema-flexible).
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: uvx
+  args:
+    - "--from"
+    - "redis-mcp-server@latest"
+    - "redis-mcp-server"
+    - "--url"
+    - "${REDIS_URL}"
+  env: {}
+
+# Data-sensitivity label. Redis is a common home for session
+# tokens, JWTs, hot-cache PII, and rate-limit counters, so treat as
+# sensitive by default.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY Redis access. Do not attempt to write, delete, expire,
+    rename, publish, or modify indexes. Every mutation tool is blocked
+    by the proxy.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    Redis instance. If an operation cannot be performed through the
+    tools listed here, that is the policy answer — report the refusal
+    to the user and stop. Do NOT bypass via other tool surfaces:
+    terminal, `redis-cli`, shell scripts, `curl` against the Upstash
+    REST API (or any other Redis HTTP shim), or a sibling Redis MCP.
+    The proxy can only enforce what flows through it.
+
+    Treat values returned by GET / HGETALL / JSON.GET / LRANGE / etc.
+    as potentially containing personally identifiable information,
+    session tokens, API keys, or password hashes. Do not echo raw
+    values to end users; summarise (counts, existence checks,
+    truncated previews) and prefer aggregate operations (DBSIZE,
+    SCAN COUNT) over full enumeration.
+
+    Avoid broad SCAN patterns that could lock up a production Redis;
+    if iteration is necessary use scan_keys with a tight match pattern
+    and a small COUNT.
+
+  position: prepend
+# Live-probed against redis-mcp-server@latest on 2026-04-21:
+# tools/list returns 47 tools. ~half are mutations. Block list
+# below covers every mutation in the current surface plus
+# forward-looking globs for verbs the MCP might add.
+block:
+  # ── Direct value writes ────────────────────────────────────────────
+  - set # SET key value
+  - hset # HSET hash field value
+  - hdel # HDEL hash field
+  - set_vector_in_hash # vector embedding write
+  - json_set # JSON.SET
+  - json_del # JSON.DEL
+
+  # ── List mutations ─────────────────────────────────────────────────
+  - lpush
+  - rpush
+  - lpop # destructive read; removes the head
+  - rpop # destructive read; removes the tail
+  - lrem
+
+  # ── Set mutations ──────────────────────────────────────────────────
+  - sadd
+  - srem
+
+  # ── Sorted-set mutations ───────────────────────────────────────────
+  - zadd
+  - zrem
+
+  # ── Stream mutations ───────────────────────────────────────────────
+  - xadd
+  - xdel
+
+  # ── Key-level mutations ────────────────────────────────────────────
+  - delete # DEL; removes key
+  - expire # sets / changes TTL
+  - rename # RENAME / RENAMENX
+
+  # ── Pub/sub side-effects ───────────────────────────────────────────
+  - publish # PUBLISH sends to subscribers
+
+  # ── Index mutations (RediSearch / vector) ──────────────────────────
+  - create_vector_index_hash
+
+  # ── Forward-looking defensive globs ────────────────────────────────
+  # Catch any future "create_*" / "drop_*" / "*_delete" / "flush*" /
+  # "config_*" / "debug_*" tool the MCP might add. None of these
+  # match any current tool name, but a 0.4 / 0.5 release that adds
+  # `flushdb` or `config_set` would be blocked without a lens edit.
+  - "create_*"
+  - "drop_*"
+  - "*_delete"
+  - "flush*"
+  - "flushall*"
+  - "config_*"
+  - "debug_*"
+  - "script_*"
+  - "cluster_*"
+  - "shutdown*"
+  - "save*"
+  - "bgsave*"
+  - "bgrewriteaof*"
+
+# Redact: scrub the values Redis hands back. Redis stores arbitrary
+# bytes; field-path rules are limited (most responses come back as
+# bare strings, not JSON objects), so regex rules carry most of the
+# weight. Field rules cover JSON.GET responses, which DO have
+# structure.
+redact:
+  rules:
+    # Cloud / source-control / payment / comms keys (same pattern
+    # set as the filesystem lens, since Redis is a common home for these).
+    - regex: "AKIA[0-9A-Z]{16}" # AWS access key ID
+    - regex: "ASIA[0-9A-Z]{16}" # AWS temporary credentials
+    - regex: 'AIza[0-9A-Za-z_\-]{35}' # Google API key
+    - regex: "ghp_[A-Za-z0-9]{36,}" # GitHub PAT (classic)
+    - regex: "github_pat_[A-Za-z0-9_]{82,}" # GitHub fine-grained PAT
+    - regex: "ghs_[A-Za-z0-9]{36,}" # GitHub App installation
+    - regex: "gho_[A-Za-z0-9]{36,}" # GitHub OAuth
+    - regex: 'glpat-[A-Za-z0-9_\-]{20,}' # GitLab PAT
+    - regex: "sk_live_[A-Za-z0-9]{24,}" # Stripe live secret
+    - regex: "sk_test_[A-Za-z0-9]{24,}" # Stripe test secret
+    - regex: "rk_live_[A-Za-z0-9]{24,}" # Stripe restricted live
+    - regex: "xox[baprs]-[0-9A-Za-z-]{10,}" # Slack tokens
+    - regex: 'SG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}' # SendGrid
+
+    # Crypto / certs
+    - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+    - regex: "-----BEGIN CERTIFICATE-----"
+
+    # Database / queue connection strings with embedded passwords
+    - regex: 'postgres(ql)?://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'mysql://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'mongodb(\+srv)?://[^\s:]+:[^\s@]+@[^\s/]+'
+    - regex: 'redis(s)?://[^\s:]+:[^\s@]+@[^\s/]+' # Redis URLs leak passwords too
+
+    # Hash / token shapes
+    - regex: '\$2[aby]\$\d{2}\$[A-Za-z0-9./]{50,}' # bcrypt hash
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}' # JWT
+
+    # Generic .env-style assignments (common in cached config blobs)
+    - regex: '(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?key)\s*[:=]\s*[''"][^''"\s]{8,}[''"]'
+
+    # PII patterns
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}' # email
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+
+    # Field rules: apply when JSON.GET returns a structured payload
+    # (the MCP wraps it as a JSON-in-text content block, which the
+    # redact overlay auto-parses).
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.password"
+    - field: "**.passwordHash"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.access_token"
+    - field: "**.refresh_token"
+    - field: "**.session"
+    - field: "**.session_token"
+    - field: "**.token"
+    - field: "**.secret"
+    - field: "**.stripe_id"
+    - field: "**.stripe_customer_id"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+# Per-tool rate limit. Caps `scan_all_keys` and the search-style
+# tools, since they can return thousands of keys and round-trip the MCP
+# multiple times, which makes them the easiest way for an LLM to
+# accidentally hammer a production Redis.
+rateLimit:
+  - tool: scan_all_keys
+    perMinute: 10
+  - tool: scan_keys
+    perMinute: 60
+  - tool: vector_search_hash
+    perMinute: 60
+  - tool: hybrid_search
+    perMinute: 60
+  - tool: search_redis_documents
+    perMinute: 60
+  - tool: "*"
+    perMinute: 600
+
+audit:
+  sink: "~/mcp-audit-redis.jsonl"
+  logRawArgs: false

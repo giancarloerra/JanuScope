@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/giancarloerra/januscope#readme
+    about: Quick start, lens reference, configuration, FAQ
+  - name: Lens authoring guide
+    url: https://github.com/giancarloerra/januscope/blob/main/lenses/CONTRIBUTING.md
+    about: How to add or improve a lens for a specific MCP
+  - name: Threat model and security policy
+    url: https://github.com/giancarloerra/januscope/blob/main/SECURITY.md
+    about: Three-layer model and how to report a vulnerability privately
+  - name: Questions and discussions
+    url: https://github.com/giancarloerra/januscope/discussions
+    about: Ask "how do I..." questions or share a use case (please don't open issues for questions)

@@ -1,0 +1,23 @@
+# JanuScope — code ownership map.
+# Giancarlo (@giancarloerra) is the maintainer; the list mirrors the
+# commercial-license rights holder in LICENSE-COMMERCIAL. When the
+# project grows additional maintainers, add them here per directory.
+
+* @giancarloerra
+
+/src/                       @giancarloerra
+/lenses/                    @giancarloerra
+/scripts/                   @giancarloerra
+/.github/                   @giancarloerra
+
+# Security-sensitive overlays — always require maintainer review.
+/src/overlays/sqlGuard.ts   @giancarloerra
+/src/overlays/redact.ts     @giancarloerra
+/src/overlays/audit.ts      @giancarloerra
+/src/overlays/block.ts      @giancarloerra
+
+# Licensing and CLA — changes here affect commercial terms.
+/LICENSE                    @giancarloerra
+/LICENSE-COMMERCIAL         @giancarloerra
+/CLA.md                     @giancarloerra
+/THIRD-PARTY-LICENSES       @giancarloerra

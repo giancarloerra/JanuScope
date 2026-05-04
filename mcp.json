@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "januscope": {
+      "command": "npx",
+      "args": ["-y", "januscope", "--config", "/absolute/path/to/your/lens.yaml"]
+    }
+  }
+}

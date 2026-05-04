@@ -1,0 +1,148 @@
+# ─────────────────────────────────────────────────────────────────────────
+# MongoDB — official mongodb-js/mongodb-mcp-server
+# https://github.com/mongodb-js/mongodb-mcp-server · https://www.mongodb.com/docs/mcp-server/
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# The official MongoDB MCP exposes BOTH database operation tools (find,
+# aggregate, collection-schema, list-databases) AND Atlas-management
+# tools (atlas-create-project, atlas-create-free-cluster, atlas-create-
+# db-user, ...). This lens locks it to read-only operations across
+# both surfaces.
+#
+# NOTE: sqlGuard does not apply to MongoDB — commands aren't SQL. We
+# use block at tool-name granularity plus strong instructions plus
+# redact on returned documents. Field-path rules are very effective
+# here because responses are JSON-native.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mongodb-mcp-server"
+  env:
+    MDB_MCP_CONNECTION_STRING: "${MONGODB_CONNECTION_STRING}"
+    MDB_MCP_API_CLIENT_ID: "${MONGODB_ATLAS_CLIENT_ID}"
+    MDB_MCP_API_CLIENT_SECRET: "${MONGODB_ATLAS_CLIENT_SECRET}"
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY MongoDB access. Only read operations are permitted —
+    every write, update, delete, drop, admin, or Atlas-modifying tool
+    is blocked by the proxy. Do not attempt to fall back to alternate
+    tool names if a tool is rejected.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    MongoDB cluster (and the linked Atlas project, when configured).
+    If an operation cannot be performed through the tools listed here,
+    that is the policy answer — report the refusal and stop. Do NOT
+    bypass via other tool surfaces: terminal, `mongosh`, `mongoexport`,
+    `mongodump`, shell scripts, `curl` against the Atlas Admin API,
+    or a sibling MongoDB MCP. The proxy can only enforce what flows
+    through it.
+
+    Do not return, summarise, or echo field values that look like
+    personally identifiable information: email, phone, ssn, password,
+    passwordHash, apiKey, secret, token, stripeCustomerId, cardNumber.
+
+    If a user asks about specific people or accounts, answer with
+    aggregate or identity-preserving information (counts, existence
+    checks, _id values) rather than document contents.
+
+    Default to reasonable limits when exploring collections — use find
+    with a bounded limit rather than fetching all documents.
+
+  position: prepend
+# Block every write-capable tool. List covers both database ops and
+# Atlas management. The `*_*-delete` and other globs catch anything
+# the MCP adds in future versions.
+# Verified against live tools/list on 2026-04-18 (mongodb-mcp-server).
+# Real write-capable tools in the DB surface: insert-many, update-many,
+# delete-many, drop-collection, drop-database, rename-collection,
+# create-collection, create-index, drop-index, connect. The MCP does
+# NOT expose `insert-one` / `update-one` / `delete-one` (the Mongo MCP
+# favours the plural tools and defers to filter arguments for 1-doc
+# writes). Atlas management tools load conditionally when the Atlas
+# env vars are set — `atlas-*` globs below cover those.
+block:
+  # Collection / document mutations (live tool names)
+  - insert-many
+  - update-many
+  - delete-many
+  - drop-collection
+  - drop-database
+  - rename-collection
+  - create-collection
+  - create-index
+  - drop-index
+  - connect # switches active connection → write-ish
+  # Atlas mutations (loaded when MCP is configured with Atlas creds).
+  # Literals for the highest-value operations; globs catch the rest.
+  - atlas-create-project
+  - atlas-create-free-cluster
+  - atlas-create-access-list
+  - atlas-create-db-user
+  - atlas-connect-cluster
+  # Forward-looking globs. `insert-*` / `update-*` / `delete-*` catch
+  # any singular-variant the MCP might add (insert-one etc.) without
+  # a config change. `atlas-*` mutations covered explicitly too.
+  - "atlas-create-*"
+  - "atlas-delete-*"
+  - "atlas-update-*"
+  - "drop-*"
+  - "delete-*"
+  - "create-*"
+  - "update-*"
+  - "insert-*"
+  - "rename-*"
+
+# Scrub PII. Field rules auto-parse JSON in text content blocks,
+# so `**.email` matches inside MongoDB document output. We list BOTH
+# camelCase and snake_case variants because real-world schemas vary
+# (and field-path matching is exact — `**.password` does NOT match
+# `password_hash`). Regex rules are a backstop for bcrypt, JWT, and
+# Stripe patterns in case a document uses a name we didn't anticipate.
+redact:
+  rules:
+    # Regex backstops (pattern-based, field-name-agnostic)
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    - regex: '\b\d{3}-\d{2}-\d{4}\b'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "sk_test_[A-Za-z0-9]{24,}"
+    - regex: "cus_[A-Za-z0-9]+"
+    - regex: '\$2[aby]\$\d{2}\$[A-Za-z0-9./]{50,}' # bcrypt hash
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}' # JWT
+    # Field rules — camelCase
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.ssn"
+    - field: "**.password"
+    - field: "**.passwordHash"
+    - field: "**.apiKey"
+    - field: "**.secret"
+    - field: "**.token"
+    - field: "**.stripeCustomerId"
+    - field: "**.cardNumber"
+    # Field rules — snake_case (same concepts)
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.access_token"
+    - field: "**.refresh_token"
+    - field: "**.stripe_id"
+    - field: "**.stripe_customer_id"
+    - field: "**.card_number"
+    - field: "**.card_last_four"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-mongodb.jsonl"
+  logRawArgs: false

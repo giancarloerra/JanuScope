@@ -1,0 +1,35 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+
+# IDE / editor / AI-tool local state
+.vscode/
+.idea/
+.qodo/
+.cursor/
+.zed/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Test artifacts
+/test/.tmp/
+/tmp/
+
+# Maintainer-only tooling notes (AI-assistant instructions, commit
+# conventions for the maintainer, secrets policy). Not part of the
+# public contributor docs — CONTRIBUTING.md covers what contributors need.
+/CLAUDE.md
+
+# Internal docs: strategy, roadmap, marketing, specs, cloud planning.
+# Never ship these publicly. Moved here intentionally after the decision
+# to keep the repo public but the internal reasoning private.
+/private/
+
+# Local benchmark sandbox — contains API keys, DB credentials, and runs.
+/.benchmarks/
+.claude/

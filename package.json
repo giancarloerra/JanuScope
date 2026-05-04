@@ -1,0 +1,101 @@
+{
+  "name": "januscope",
+  "version": "0.3.0",
+  "description": "JanuScope: the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, rate-limiting, and database-schema injection. No hosted gateway in the data path. Block dangerous tools, scrub sensitive output, audit every call.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "januscope",
+    "janus",
+    "ai",
+    "llm",
+    "proxy",
+    "middleware",
+    "policy",
+    "guardrails",
+    "anthropic",
+    "claude",
+    "openai"
+  ],
+  "license": "AGPL-3.0-only",
+  "author": "Giancarlo Erra - Altaire Limited",
+  "homepage": "https://github.com/giancarloerra/januscope#readme",
+  "bugs": {
+    "url": "https://github.com/giancarloerra/januscope/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/giancarloerra/januscope.git"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "januscope": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "lenses/README.md",
+    "lenses/databases",
+    "lenses/dev-tools",
+    "lenses/saas",
+    "schemas",
+    "januscope.png",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "LICENSE-COMMERCIAL",
+    "THIRD-PARTY-LICENSES"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test scripts",
+    "format": "prettier --write \"**/*.{ts,md,json,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,md,json,yaml,yml}\"",
+    "validate:lenses": "tsx scripts/validate-lenses.ts",
+    "validate:lenses:strict": "tsx scripts/validate-lenses.ts --strict",
+    "validate:lenses:probe": "tsx scripts/validate-lenses.ts --probe",
+    "bench:overhead": "tsx scripts/bench-overhead.ts",
+    "release": "release-it",
+    "release:dry": "release-it --dry-run",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run validate:lenses && npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.3.0",
+    "mysql2": "^3.11.3",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.11.1",
+    "@release-it/conventional-changelog": "^11.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.10",
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "@typescript-eslint/parser": "^8.8.0",
+    "better-sqlite3": "^11.3.0",
+    "eslint": "^9.11.1",
+    "prettier": "^3.3.3",
+    "release-it": "^20.0.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.1"
+  }
+}

@@ -1,0 +1,72 @@
+JanuScope — Third-Party Licenses
+
+This project includes the following third-party open-source software.
+Each component is governed by its own license, not by JanuScope's AGPL-3.0.
+
+RUNTIME DEPENDENCIES
+====================
+
+js-yaml                           MIT License
+zod                               MIT License
+
+OPTIONAL PEER DEPENDENCIES
+==========================
+(pulled in only when you configure dbSchema for the matching driver)
+
+better-sqlite3                    MIT License
+mysql2                            MIT License
+pg                                MIT License
+
+DEVELOPMENT DEPENDENCIES
+========================
+
+@eslint/js                        MIT License
+@types/better-sqlite3             MIT License
+@types/js-yaml                    MIT License
+@types/node                       MIT License
+@types/pg                         MIT License
+@typescript-eslint/eslint-plugin  MIT License
+@typescript-eslint/parser         MIT License
+eslint                            MIT License
+prettier                          MIT License
+tsx                               MIT License
+typescript                        Apache License 2.0
+vitest                            MIT License
+
+BUNDLED LENSES
+==============
+
+The `lenses/` directory contains configuration files and READMEs that
+reference third-party MCP servers. These MCP servers are NOT redistributed
+inside this package — each lens only tells the proxy how to spawn and
+wrap the upstream binary (via `npx`, `uvx`, `docker`, or `mcp-remote`).
+The MCP servers themselves retain their own licenses.
+
+The 11 MCP servers referenced by the bundled lenses, grouped by category:
+
+databases/
+  mcp-clickhouse (ClickHouse)              Apache License 2.0
+  mongodb-mcp-server (mongodb-js)          Apache License 2.0
+  @benborla29/mcp-server-mysql             MIT License
+  postgres-mcp (crystaldba)                MIT License
+  mcp-sqlite (panasenco)                   MIT License
+
+dev-tools/
+  @modelcontextprotocol/server-filesystem  MIT License
+  ghcr.io/github/github-mcp-server         MIT License
+
+saas/
+  @stripe/mcp                              MIT License
+  mcp-atlassian (vendor-hosted via mcp-remote)  — see Atlassian ToS
+  linear (vendor-hosted via mcp-remote)         — see Linear ToS
+  notion (vendor-hosted via mcp-remote)         — see Notion ToS
+
+The SaaS lenses for Atlassian, Linear, and Notion bridge their
+respective vendor-hosted MCP endpoints through `mcp-remote`
+(MIT License, https://github.com/geelen/mcp-remote), which is spawned
+on demand via `npx -y mcp-remote <url>`. `mcp-remote` is not bundled
+in this package — it is downloaded by the user's npm/npx at first run.
+
+Users install these via `npx -y <package>` / `uvx <package>` / `docker
+pull <image>` on demand; see each lens's README for the exact command
+line and required environment variables.

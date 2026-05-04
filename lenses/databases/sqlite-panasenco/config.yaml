@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────
+# SQLite — panasenco/mcp-sqlite
+# https://github.com/panasenco/mcp-sqlite
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Replaces the archived `mcp-server-sqlite` (Python reference MCP).
+# `panasenco/mcp-sqlite` is the community-maintained drop-in — also
+# Python, also installed via uvx. Exposes two core tools plus
+# optional "canned query" tools generated from a metadata file:
+#
+#   sqlite_get_catalog()    read-only; returns schema + metadata
+#   sqlite_execute(sql)     reads OR writes arbitrary SQL
+#   <canned-query>(args)    one per entry in the metadata file;
+#                           individually marked read or write
+#
+# The only proxy-layer write gate is sqlGuard on sqlite_execute.
+# Canned queries with `write: true` in their metadata are tool-
+# distinguished from reads, so `block` can hide them by name if
+# you configure them — this Lens defensively blocks any tool
+# whose name starts with "write_" or common DDL prefixes.
+#
+# Tool surface from upstream README 2026-04-19. Unverified live
+# because probing requires a SQLite file + metadata file on disk.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: uvx
+  args:
+    - "mcp-sqlite"
+    - "${SQLITE_DB_PATH}" # required: path to .sqlite file
+    # Optional: metadata file with canned queries
+    # - "--metadata"
+    # - "${SQLITE_METADATA_PATH}"
+  env: {}
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY SQLite access. Only `sqlite_get_catalog` and SELECT-
+    shaped calls via `sqlite_execute` are permitted — any mutation
+    will be rejected by the proxy, not by you. Default LIMIT 100.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    SQLite database. If an operation cannot be performed through the
+    tools listed here, that is the policy answer — report the refusal
+    and stop. Do NOT bypass via other tool surfaces: terminal,
+    `sqlite3` CLI, shell scripts, or — critically for SQLite — direct
+    reads of the underlying `.db` / `.sqlite` file via a filesystem
+    MCP, `cat`, `cp`, an editor, or any other tool that opens the
+    file. The database file IS the data; touching it directly defeats
+    every overlay this proxy provides (sqlGuard, redact, audit).
+
+    Never query, return, summarise, or echo columns that look like
+    credentials or PII. If the schema has tables like `users`,
+    `secrets`, `tokens`, prefer aggregate queries (COUNT, EXISTS)
+    over row-level reads.
+
+  position: prepend
+# Proxy-layer SQL guard on the arbitrary-SQL tool. Allowlist mode
+# rejects any statement whose leading verb isn't a read, catches
+# embedded DML, and blocks SELECT INTO / EXPLAIN ANALYZE DELETE /
+# dangerous function patterns.
+sqlGuard:
+  tools: [sqlite_execute]
+  sqlArg: sql
+  readOnly: true
+  mode: allowlist
+
+# Defensive block list — catches any canned-query tools the user
+# added via --metadata whose names follow common write conventions.
+# Matches nothing in the bare mcp-sqlite install without a metadata
+# file; kept as forward-looking defence.
+block:
+  - "write_*"
+  - "insert_*"
+  - "update_*"
+  - "delete_*"
+  - "drop_*"
+  - "create_*"
+  - "alter_*"
+  - "truncate_*"
+
+redact:
+  rules:
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    - regex: '\b\d{3}-\d{2}-\d{4}\b'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: '\$2[aby]\$\d{2}\$[A-Za-z0-9./]{20,}'
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.ssn"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.token"
+    - field: "**.access_token"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-sqlite.jsonl"
+  logRawArgs: false

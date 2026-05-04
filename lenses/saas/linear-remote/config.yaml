@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Linear — official REMOTE MCP (mcp.linear.app), bridged via mcp-remote
+# https://linear.app/docs/mcp · https://github.com/geelen/mcp-remote
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Linear's official MCP is remote-only (Streamable HTTP / SSE at
+# https://mcp.linear.app/mcp). JanuScope v0.3 is stdio-only, so this
+# Lens wraps the remote MCP via the `mcp-remote` stdio-to-HTTP bridge
+# (npx -y mcp-remote https://mcp.linear.app/sse). Auth is via OAuth
+# in a browser window the first time the bridge starts — the token
+# is cached in ~/.mcp-auth for subsequent runs.
+#
+# Tool surface from linear.app/docs/mcp 2026-04-19 — UNVERIFIED here
+# because live probing requires completing the Linear OAuth flow.
+# Block patterns are generic "linear_*" write verbs; verify against
+# your installed version's tools/list after OAuth completes.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mcp-remote"
+    - "https://mcp.linear.app/sse"
+  env: {}
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: internal
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY access to the Linear workspace. Do not attempt to
+    create, update, delete, assign, or transition issues, projects,
+    initiatives, or comments. Any mutation tool is blocked by the
+    proxy.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to the
+    Linear workspace for this session. If an operation cannot be
+    performed through the tools listed here, that is the policy
+    answer — report the refusal and stop. Do NOT bypass via other
+    tool surfaces: terminal, `curl` against `api.linear.app/graphql`
+    with a `lin_api_*` token, shell scripts, or a sibling Linear MCP.
+    The redact overlay is doing real work on issue and comment text;
+    reaching around it returns content unscrubbed.
+
+    Linear issues and descriptions often contain API tokens or
+    credentials pasted during debugging sessions. Scrub anything that
+    looks like `lin_api_*`, `ghp_*`, `sk_live_*`, AWS keys, or
+    `password=` / `api_key=` assignments when summarising.
+
+  position: prepend
+# Verified against live tools/list on 2026-04-19 — the remote MCP
+# at mcp.linear.app exposes 31 tools. Linear uses a `save_*` naming
+# convention for upserts (save_issue creates OR updates, same tool),
+# which my earlier block list (create_issue / update_issue literals)
+# completely missed — those names don't exist. The save_* glob is
+# the critical write gate here.
+#
+# Live writes catchable by these globs:
+#   save_*     save_issue, save_comment, save_project, save_milestone
+#   create_*   create_attachment, create_document, create_issue_label
+#   update_*   update_document
+#   delete_*   delete_attachment, delete_comment
+#
+# Plus extract_images (potentially side-effectful OCR on docs).
+block:
+  - "save_*" # critical — Linear uses save_ for create/update upsert
+  - "create_*"
+  - "update_*"
+  - "delete_*"
+  - extract_images # may have side effects; defensive
+  # Forward-looking defensive globs for verbs the remote MCP may add
+  - "add_*"
+  - "remove_*"
+  - "assign_*"
+  - "transition_*"
+  - "archive_*"
+  - "unarchive_*"
+
+redact:
+  rules:
+    - regex: "lin_api_[A-Za-z0-9]{32,}" # Linear API key
+    - regex: "ghp_[A-Za-z0-9]{36,}"
+    - regex: "github_pat_[A-Za-z0-9_]{82,}"
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "sk_test_[A-Za-z0-9]{24,}"
+    - regex: "AKIA[0-9A-Z]{16}"
+    - regex: 'AIza[0-9A-Za-z_\-]{35}'
+    - regex: "xox[baprs]-[0-9A-Za-z-]{10,}"
+    - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'
+    - regex: '(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token)\s*[:=]\s*[''"][^''"\s]{8,}[''"]'
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-linear.jsonl"
+  logRawArgs: false

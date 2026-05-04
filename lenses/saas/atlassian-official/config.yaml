@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Atlassian — OFFICIAL Rovo MCP server (hosted/remote)
+# https://github.com/atlassian/atlassian-mcp-server
+# Atlassian announcement: https://www.atlassian.com/blog/announcements/remote-mcp-server
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# This is the OFFICIAL Atlassian MCP, GA and hosted on Cloudflare.
+# It's remote-only (Streamable HTTP at https://mcp.atlassian.com/v1/mcp),
+# so JanuScope v0.3 wraps it via the mcp-remote stdio↔HTTP bridge.
+# First launch opens a browser window for OAuth 2.1; subsequent runs
+# use the cached token.
+#
+# Covers Jira, Confluence, and Compass. All actions respect existing
+# Atlassian Cloud permissions (users can't see more via MCP than they
+# can see in the UI). IP allowlisting is also honoured.
+#
+# Atlassian Cloud only — the Rovo MCP does not support Server /
+# Data Center deployments. For those, install the upstream
+# sooperset/mcp-atlassian Python package directly (without a
+# bundled JanuScope lens).
+#
+# Tool names / surface UNVERIFIED at the time of writing — probe
+# locally after completing OAuth to confirm block globs fire.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mcp-remote"
+    - "https://mcp.atlassian.com/v1/mcp"
+  env: {}
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: internal
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY access to Jira, Confluence, and Compass. Do not attempt
+    to create, update, or delete issues, pages, components, bulk
+    imports, or links. Mutations are blocked by the proxy.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to Jira,
+    Confluence, and Compass for this session. If an operation cannot
+    be performed through the tools listed here, that is the policy
+    answer — report the refusal and stop. Do NOT bypass via other
+    tool surfaces: terminal, `curl` against `*.atlassian.net/rest/api/`
+    with the user's Atlassian API token, the `acli` / `jira` CLI,
+    shell scripts, or a sibling Atlassian / Jira MCP. The redact
+    overlay is doing real work on ticket and page content; reaching
+    around it returns text unscrubbed.
+
+    When summarising ticket / page content, redact anything that
+    looks like a credential: Jira API tokens, GitHub PATs (ghp_*),
+    AWS keys, Stripe keys, PEM private-key blocks. Atlassian tickets
+    and Confluence pages are a frequent source of pasted secrets
+    during incident triage.
+
+  position: prepend
+# Verified against live tools/list on 2026-04-19 — the Rovo MCP
+# exposes 31 tools using CAMEL-CASE names (not snake_case). Real
+# writes (10): createConfluencePage, updateConfluencePage,
+# createConfluenceFooterComment, createConfluenceInlineComment,
+# editJiraIssue, createJiraIssue, addCommentToJiraIssue,
+# transitionJiraIssue, addWorklogToJiraIssue, createIssueLink.
+#
+# The globs below use `create*` (no separator) rather than
+# `create_*` so they match camelCase names: `create*` compiles to
+# the regex `^create[^:]*$` which matches createConfluencePage,
+# createJiraIssue, etc. An earlier version of this lens used
+# snake_case globs that matched NOTHING against this MCP — probing
+# caught it.
+block:
+  - "create*" # createConfluencePage, createConfluenceFooterComment,
+    #   createConfluenceInlineComment, createJiraIssue,
+    #   createIssueLink
+  - "update*" # updateConfluencePage
+  - "edit*" # editJiraIssue
+  - "add*" # addCommentToJiraIssue, addWorklogToJiraIssue
+  - "transition*" # transitionJiraIssue
+  # Forward-looking — no current tool matches, but kept for future writes
+  - "delete*"
+  - "remove*"
+  - "archive*"
+  - "move*"
+  - "upload*"
+  - "bulk*"
+  - "batch*"
+  - "reply*"
+  - "assign*"
+
+redact:
+  rules:
+    - regex: 'ATATT[0-9a-zA-Z_\-]{16,}={0,2}[0-9A-F]{0,10}' # Atlassian API token
+    - regex: "ghp_[A-Za-z0-9]{36,}"
+    - regex: "github_pat_[A-Za-z0-9_]{82,}"
+    - regex: "AKIA[0-9A-Z]{16}"
+    - regex: 'AIza[0-9A-Za-z_\-]{35}'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "sk_test_[A-Za-z0-9]{24,}"
+    - regex: "xox[baprs]-[0-9A-Za-z-]{10,}"
+    - regex: "-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+    - regex: 'eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}'
+    - regex: '(?i)(password|passwd|secret|api[_-]?key|auth[_-]?token)\s*[:=]\s*[''"][^''"\s]{8,}[''"]'
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-atlassian-official.jsonl"
+  logRawArgs: false

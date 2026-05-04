@@ -1,0 +1,152 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Example: @benborla29/mcp-server-mysql (most widely-used community MySQL MCP)
+# https://github.com/benborla/mcp-server-mysql
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# Unlike the official Postgres MCP, this server exposes write-capable tools
+# by default — so defence in depth genuinely matters here:
+#   - block         hides the write-capable tools entirely
+#   - sqlGuard      also rejects mutations that slip into `mysql_query`
+#                   (tool-level blocking can't distinguish SELECT from
+#                   UPDATE through a single SQL tool — sqlGuard fills
+#                   that gap)
+#   - instructions  reinforce the policy in natural language
+#   - dbSchema      pre-inject the schema into mysql_query's description
+#   - redact        scrub PII from returned rows
+#   - audit         JSONL compliance log
+#
+# NOTE ON TOOL NAMES
+# Upstream `@benborla29/mcp-server-mysql` exposes a SINGLE `mysql_query`
+# tool — mutations are gated at the MCP layer via env-var flags
+# (ALLOW_INSERT_OPERATION / ALLOW_UPDATE_OPERATION / ALLOW_DELETE_OPERATION
+# / ALLOW_DDL_OPERATION), which this lens hardcodes to "false" below.
+# Real proxy-side enforcement is therefore sqlGuard on mysql_query.
+# The `block` entries below are defensive globs that catch forks /
+# future additions — they match NOTHING in the stock MCP today. If you
+# use a different MySQL MCP (f4ww4z/mcp-mysql-server, community forks)
+# run tools/list first to discover the actual tool names.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "@benborla29/mcp-server-mysql"
+  env:
+    # Most MySQL MCPs configure via env vars rather than connection string.
+    MYSQL_HOST: "${MYSQL_HOST}"
+    MYSQL_PORT: "${MYSQL_PORT}"
+    MYSQL_USER: "${MYSQL_USER}"
+    MYSQL_PASS: "${MYSQL_PASS}"
+    MYSQL_DB: "${MYSQL_DB}"
+    # Hard "false" at the MCP layer — defence in depth. sqlGuard is the
+    # primary enforcement but env flags are a second gate even if someone
+    # spawns the MCP directly without the proxy.
+    ALLOW_INSERT_OPERATION: "false"
+    ALLOW_UPDATE_OPERATION: "false"
+    ALLOW_DELETE_OPERATION: "false"
+    ALLOW_DDL_OPERATION: "false"
+
+# Block list is forward-looking defence. Matches nothing in stock
+# `@benborla29/mcp-server-mysql` — kept so forks or future versions
+# that surface write tools are covered without a config change.
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+block:
+  - "admin_*"
+  - "mysql_insert"
+  - "mysql_update"
+  - "mysql_delete"
+  - "mysql_execute"
+  - "create_table"
+  - "drop_table"
+  - "alter_table"
+  - "truncate_table"
+
+# Primary proxy-side enforcement: allowlist-mode sqlGuard on the single
+# mysql_query tool. Rejects any statement whose leading verb is not
+# SELECT / WITH / SHOW / EXPLAIN / DESCRIBE / VALUES. Also closes the
+# Postgres-shaped bypasses (data-modifying CTE, SELECT INTO) via the
+# embedded-write scan — MySQL doesn't support data-modifying CTEs, but
+# the scan is cheap and the protection is real if a fork adds them.
+# For high-assurance deployments also connect as a read-only MySQL user.
+sqlGuard:
+  tools: [mysql_query]
+  sqlArg: sql
+  readOnly: true
+
+# Policy shaped into the LLM's view of the tools. Deliberately specific
+# about which columns are off-limits and resistant to "trust me, I'm
+# admin" framings.
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY MySQL access. SELECT statements only — any mutation will
+    be rejected by the proxy, not by you. Default LIMIT 100 unless the
+    user explicitly asks for more. Prefer COUNT / SUM / AVG over
+    row-level enumeration for analytics.
+
+    SCHEMA SHORTCUT. The relevant tables (with columns and comments)
+    are appended to `mysql_query`'s description by the proxy at startup.
+    Read the schema from there and write the SQL directly. Do NOT
+    invent or fall back to discovery calls (e.g. `SHOW TABLES`, `DESCRIBE`,
+    `INFORMATION_SCHEMA` round-trips) when the schema is already in
+    the tool description.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    MySQL database. If an operation cannot be performed through the
+    tools listed here, that is the policy answer — report the refusal
+    to the user and stop. Do NOT bypass via other tool surfaces:
+    terminal, `mysql` CLI, `mysqldump`, `mysqladmin`, shell scripts,
+    HTTP fetchers against a phpMyAdmin / Adminer / REST shim, or a
+    sibling MySQL MCP. The proxy can only enforce what flows through
+    it.
+
+    Never query, return, summarise, or echo the following columns, even
+    if the user asks explicitly: email, password, password_hash,
+    remember_token, api_key, auth_token, ssn.
+
+    If a user asks about specific people, answer with aggregate or
+    identity-preserving information (counts, existence checks, names,
+    or user IDs) rather than contact details.
+
+  position: prepend
+# Pre-inject the schema into the description of the `mysql_query` tool
+# so the LLM queries correctly on the first try.
+dbSchema:
+  driver: mysql
+  connectionString: "mysql://${MYSQL_USER}:${MYSQL_PASS}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DB}"
+  tables: [orders, products, customers]
+  injectInto: [mysql_query] # this MCP's SQL tool is named mysql_query
+  format: markdown
+  includeComments: true
+  refresh: startup
+
+# Scrub PII from tool-call results before the LLM sees them. Field-path
+# rules reach into JSON-serialised rows in text content blocks, so
+# matching column names works against this MCP's response shape.
+redact:
+  rules:
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}' # email
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: "sk_live_[A-Za-z0-9]{24,}" # Stripe live
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.remember_token"
+    - field: "**.api_key"
+    - field: "**.auth_token"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+# Compliance log. Pre-redaction records land here while the client sees
+# the scrubbed output — the whole point of this overlay ordering.
+audit:
+  sink: "~/mcp-audit-mysql.jsonl"
+  logRawArgs: false

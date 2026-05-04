@@ -1,0 +1,128 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Postgres — CrystalDBA/postgres-mcp ("Postgres MCP Pro")
+# https://github.com/crystaldba/postgres-mcp
+#
+# Use with:
+#   januscope --config ./config.yaml
+#
+# The widely-deployed replacement for the archived
+# `@modelcontextprotocol/server-postgres`. Unlike the old reference
+# server, Postgres MCP Pro is analysis-oriented: it exposes schema
+# introspection, query plans, workload analysis, index tuning, and a
+# single `execute_sql` tool for arbitrary reads. It ships with a
+# built-in `--access-mode=restricted` flag that limits `execute_sql`
+# to read-only transactions and constrains resource use. We hardcode
+# that flag below as defence-in-depth, and this Lens then adds
+# sqlGuard + schema pre-injection + PII redaction + audit on top.
+#
+# Verified against `tools/list` on 2026-04-19 — 9 tools exposed in
+# restricted mode: list_schemas, list_objects, get_object_details,
+# explain_query, analyze_workload_indexes, analyze_query_indexes,
+# analyze_db_health, get_top_queries, execute_sql.
+# ─────────────────────────────────────────────────────────────────────────
+
+target:
+  command: uvx
+  args:
+    - "postgres-mcp"
+    - "--access-mode=restricted" # MCP-layer read-only. sqlGuard is the
+      # proxy-layer backstop below.
+  env:
+    # This Lens's user-facing env var is DATABASE_URL (the de-facto
+    # Postgres convention — Heroku, Vercel, Render, Fly all use it).
+    # The MCP itself expects DATABASE_URI, so we map here. Both
+    # target.env and dbSchema.connectionString below read from the
+    # same user-supplied $DATABASE_URL.
+    DATABASE_URI: "${DATABASE_URL}"
+
+# Data-sensitivity label — tags audit records and prepends a classification
+# banner to the instructions the LLM sees.
+classification: sensitive
+
+instructions:
+  text: |
+    STRICT POLICY. Read this carefully before every tool call.
+
+    READ-ONLY Postgres access. SELECT-shaped queries only via
+    `execute_sql` — any mutation will be rejected by the proxy and
+    the MCP, not by you. Default to bounded `LIMIT` (50 or fewer
+    unless the user explicitly asks for more).
+
+    SCHEMA SHORTCUT. The full database schema (every table and column,
+    with comments) is appended to `execute_sql`'s description by the
+    proxy at startup. Read it from there. Do NOT call `list_schemas`,
+    `list_objects`, or `get_object_details` for routine queries — the
+    schema is already in front of you, and discovery calls waste tool
+    budget without changing the answer. Only call those tools if the
+    schema in the description is genuinely missing the table or column
+    the user is asking about.
+
+    SURFACE BOUNDARY. This MCP is the only sanctioned path to this
+    Postgres database. If an operation cannot be performed through the
+    tools listed here, that is the policy answer — report the refusal
+    to the user and stop. Do NOT bypass via other tool surfaces:
+    terminal, `psql`, `pg_dump`, `pg_restore`, shell scripts, `curl`
+    against an admin/REST endpoint, or a sibling Postgres MCP. The
+    proxy can only enforce what flows through it; reaching around it
+    is a policy violation.
+
+    Never query, return, summarise, or echo columns that look like
+    secrets or PII: email, phone, ssn, password, password_hash,
+    remember_token, api_key, auth_token, stripe_customer_id, card
+    number. Prefer COUNT / SUM / AVG over row-level enumeration.
+
+    If a user asks about specific people, reply with aggregate or
+    identity-preserving information (counts, existence checks, user
+    IDs) rather than contact details.
+
+  position: prepend
+# Proxy-layer SQL guard on execute_sql. Allowlist mode rejects any
+# statement whose leading verb is not on the read list and scans for
+# embedded DML, SELECT INTO, EXPLAIN ANALYZE DELETE, pg_sleep / lo_*,
+# and COPY … PROGRAM. Even if the MCP's own --access-mode=restricted
+# is bypassed by a version upgrade, this holds.
+sqlGuard:
+  tools: [execute_sql]
+  sqlArg: sql
+  readOnly: true
+  mode: allowlist
+
+# Pre-inject the schema into execute_sql's description so the model
+# queries correctly on the first attempt.
+dbSchema:
+  driver: postgres
+  connectionString: "${DATABASE_URL}"
+  # For multi-schema deployments list every relevant namespace here.
+  # Defaults to ["public"] when omitted.
+  # schemas: ["public", "analytics"]
+  injectInto: [execute_sql]
+  format: markdown
+  includeComments: true
+  refresh: startup
+
+redact:
+  rules:
+    - regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    - regex: '\b\d{3}-\d{2}-\d{4}\b'
+    - regex: "sk_live_[A-Za-z0-9]{24,}"
+    - regex: "cus_[A-Za-z0-9]+"
+    - regex: '\$2[aby]\$\d{2}\$[A-Za-z0-9./]{20,}'
+    - field: "**.email"
+    - field: "**.phone"
+    - field: "**.ssn"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.remember_token"
+    - field: "**.api_key"
+    - field: "**.auth_token"
+    - field: "**.access_token"
+    - field: "**.refresh_token"
+    - field: "**.stripe_customer_id"
+    - field: "**.stripe_id"
+    - field: "**.card_number"
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-postgres.jsonl"
+  logRawArgs: false

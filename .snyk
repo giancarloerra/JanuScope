@@ -1,0 +1,71 @@
+# Snyk policy file
+#
+# Documents which Snyk Code findings are intentional / out-of-threat-model
+# for JanuScope. Re-evaluated whenever cli.ts or the test fixtures change.
+#
+# Format reference:
+#   https://docs.snyk.io/manage-issues/policies/the-.snyk-file
+#
+# CLI invocation:
+#   snyk code test            # source-side analysis
+#   snyk test                 # dependency-side analysis (covered by ci.yml)
+
+version: v1.25.0
+
+# Files Snyk Code should not analyse. Test fixtures intentionally embed
+# fake-but-realistic credential strings to verify the redact overlay
+# matches them. Flagging those as "hardcoded secrets" is correct
+# pattern-recognition but wrong threat-modelling: the strings are
+# decoys, not live keys.
+exclude:
+  code:
+    - test/**
+
+# Per-finding rationale for issues Snyk Code surfaces in src/. Kept as a
+# documented denylist rather than UI-side ignores so the rationale lives
+# next to the code.
+#
+# javascript/PT at src/cli.ts:124, 331, 408 plus the contextInjection
+# textFile sink (overlays/contextInjection.ts) reachable from the same
+# data-flow source.
+#   Path traversal from a command-line --config argument into
+#   fs.readFileSync (either reading the lens config itself, or reading
+#   the textFile a lens points at via contextInjection). By design:
+#   JanuScope is a CLI; the operator supplies the lens path, and the
+#   lens supplies textFile. Both are within the operator's trust
+#   boundary — the same lens can already declare an arbitrary
+#   target.command. The "untrusted input" is the operator's own argv,
+#   which is the trust source for the entire process. Mitigation:
+#   none required at the CLI boundary; a hostile operator already has
+#   shell access. Defence-in-depth: the audit overlay records the
+#   resolved path on every startup, so post-incident forensics can see
+#   which file was loaded.
+#
+# javascript/IndirectCommandInjection at src/cli.ts:134
+#   The lens config tells JanuScope which MCP binary to spawn (target.
+#   command + args). Same trust model as PT above: the operator authored
+#   the lens; the spawn is operator-intent. spawn() is invoked without
+#   a shell (no `shell: true`), so command/args are passed as a fixed
+#   argv array, not interpolated into a shell command line. There is no
+#   string-interpolation path from network input to argv.
+#
+# javascript/reDOS at src/cli.ts:134 (data-flow, sink is _shared.ts:46)
+#   Patched 2026-05-04: compileToolMatcher now collapses consecutive
+#   `*` chars to a single one before regex compilation, so a glob like
+#   `**********` no longer produces N quantifiers worth of polynomial
+#   backtracking. See src/overlays/_shared.ts and the regression test
+#   in test/overlays/block.test.ts ("ReDoS regression"). If Snyk
+#   continues to flag the data flow after the fix, it is a stale alert
+#   on the source point rather than a real exploitable sink.
+#
+# javascript/PrototypePollution at src/cli.ts:134 (data-flow, sinks in
+# src/quarantine.ts and src/overlays/audit.ts canonical-JSON helpers)
+#   Patched 2026-05-04: both `sortKeysRecursive` (quarantine.ts) and
+#   `sortKeys` (audit.ts) now build the canonical object with
+#   `Object.create(null)` so there is no Object.prototype to pollute,
+#   and explicitly skip `__proto__` / `constructor` / `prototype`
+#   keys when copying. A malicious upstream MCP returning a tool with
+#   `name: "__proto__"` (or smuggling the string through inputSchema)
+#   cannot mutate the proxy process. Snyk's static taint tracking
+#   does not model the safety of `Object.create(null)`, so the
+#   data-flow source point keeps showing up; the sink is closed.
