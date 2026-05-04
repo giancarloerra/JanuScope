@@ -11,7 +11,8 @@
     "releaseName": "v${version}"
   },
   "npm": {
-    "publish": true
+    "publish": true,
+    "versionArgs": ["--allow-same-version"]
   },
   "plugins": {
     "@release-it/conventional-changelog": {
