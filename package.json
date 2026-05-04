@@ -1,7 +1,7 @@
 {
   "name": "januscope",
   "mcpName": "io.github.giancarloerra/januscope",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "JanuScope: the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, rate-limiting, and database-schema injection. No hosted gateway in the data path. Block dangerous tools, scrub sensitive output, audit every call.",
   "keywords": [
     "mcp",

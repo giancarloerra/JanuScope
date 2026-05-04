@@ -4,6 +4,12 @@ All notable changes to JanuScope are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [0.3.1](https://github.com/giancarloerra/januscope/compare/v0.3.0...v0.3.1) (2026-05-04)
+
+### Bug Fixes
+
+* **npm:** add mcpName for MCP registry verification ([2d90cc9](https://github.com/giancarloerra/januscope/commit/2d90cc9f986c64b080f3d869e1abd5866206e3ca))
+
 ## 0.3.0 (2026-05-04)
 
 ### Features
