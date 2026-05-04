@@ -379,7 +379,7 @@ function parseYamlOrJson(text: string, path: string): unknown {
     return loadYaml(text);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`failed to parse config at ${path}: ${message}`);
+    throw new Error(`failed to parse config at ${path}: ${message}`, { cause: err });
   }
 }
 

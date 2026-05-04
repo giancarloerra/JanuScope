@@ -96,7 +96,7 @@ export function createDbSchemaOverlay(options: DbSchemaOverlayOptions): Overlay 
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        throw new Error(`dbSchema overlay setup failed: ${message}`);
+        throw new Error(`dbSchema overlay setup failed: ${message}`, { cause: err });
       }
     },
 

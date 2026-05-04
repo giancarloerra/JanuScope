@@ -173,6 +173,7 @@ async function resolveVault(ref: SecretRef): Promise<string> {
       throw new Error(
         `januscope: vault:// fetch for '${saferef(ref.raw)}' timed out after ${timeoutMs}ms. ` +
           `Check VAULT_ADDR reachability or set VAULT_FETCH_TIMEOUT_MS to a higher value.`,
+        { cause: err },
       );
     }
     // Network-level failure (DNS, ECONNREFUSED, TLS, etc.). Re-wrap so
@@ -180,7 +181,9 @@ async function resolveVault(ref: SecretRef): Promise<string> {
     // saferef'd ref but NOT the raw URL (which may include the mount
     // / path the operator considers sensitive).
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`januscope: vault:// fetch for '${saferef(ref.raw)}' failed (${msg}).`);
+    throw new Error(`januscope: vault:// fetch for '${saferef(ref.raw)}' failed (${msg}).`, {
+      cause: err,
+    });
   } finally {
     clearTimeout(timer);
   }

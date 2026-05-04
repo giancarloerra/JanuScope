@@ -210,7 +210,7 @@ function loadSingleLens(ctx: SingleLensContext): Lens {
   try {
     rawConfig = loadYaml(configText);
   } catch (err) {
-    throw new Error(`config.yaml failed to parse: ${errorMessage(err)}`);
+    throw new Error(`config.yaml failed to parse: ${errorMessage(err)}`, { cause: err });
   }
   const substituted = substituteEnv(rawConfig, ctx.env);
   const config = validateConfig(substituted);
@@ -224,7 +224,9 @@ function loadSingleLens(ctx: SingleLensContext): Lens {
   try {
     parsedFm = loadYaml(frontmatter);
   } catch (err) {
-    throw new Error(`README.md frontmatter failed to parse: ${errorMessage(err)}`);
+    throw new Error(`README.md frontmatter failed to parse: ${errorMessage(err)}`, {
+      cause: err,
+    });
   }
   const metadataResult = LensMetadataSchema.safeParse(parsedFm);
   if (!metadataResult.success) {

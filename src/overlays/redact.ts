@@ -314,7 +314,7 @@ function compileRegex(pattern: string): RegExp {
     return new RegExp(body, flags);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`redact: invalid regex '${pattern}': ${msg}`);
+    throw new Error(`redact: invalid regex '${pattern}': ${msg}`, { cause: err });
   }
 }
 

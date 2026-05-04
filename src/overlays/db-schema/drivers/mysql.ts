@@ -164,6 +164,7 @@ async function loadMysql(): Promise<Mysql2PromiseApi> {
     throw new Error(
       "MySQL support requires the optional dependency 'mysql2'. " +
         "Install it with: npm install mysql2",
+      { cause: err },
     );
   }
 }

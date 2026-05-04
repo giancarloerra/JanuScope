@@ -12,6 +12,18 @@ updates:
         dependency-type: development
       runtime-dependencies:
         dependency-type: production
+    # Targeted ignores for major-version bumps that have been evaluated
+    # and require dedicated migration work, not a drive-by upgrade.
+    # SocratiCode (the sibling project) is also on zod 3 for the same
+    # reason. Revisit when we have time to do the migration properly.
+    ignore:
+      # zod 4 has breaking type changes: `.parse()` signature, stricter
+      # Record<string, unknown> output, schema API differences. Migrating
+      # is a multi-file refactor across config.ts, index.ts, probe.ts,
+      # plus the validateConfig surface. Stay on zod 3.x until done.
+      - dependency-name: zod
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: "/"

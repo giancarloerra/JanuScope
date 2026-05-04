@@ -117,7 +117,9 @@ function resolveText(options: ContextInjectionOptions): string {
     return readFileSync(path, "utf8");
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`contextInjection: could not read textFile ${path}: ${reason}`);
+    throw new Error(`contextInjection: could not read textFile ${path}: ${reason}`, {
+      cause: err,
+    });
   }
 }
 
