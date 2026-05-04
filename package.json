@@ -86,7 +86,7 @@
     "@release-it/conventional-changelog": "^11.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.7.4",
+    "@types/node": "^25.6.0",
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.2",
