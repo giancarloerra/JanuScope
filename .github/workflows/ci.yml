@@ -19,29 +19,16 @@ jobs:
       matrix:
         node: ["20", "22"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # Regenerate the lockfile on the runner before installing (npm/cli#4828).
-      # The committed `package-lock.json` is generated on the maintainer's
-      # machine (macOS / Windows). It declares every platform's rollup binary
-      # as an available optional dep, but only records the host platform's
-      # binary as actually resolved in `node_modules/...`. `npm ci` and
-      # `npm install` both follow the lockfile literally, so on a Linux
-      # runner they skip the Linux rollup binary that vitest needs and
-      # fail at startup with "Cannot find module @rollup/rollup-linux-x64-gnu".
-      # Removing the lockfile forces npm to resolve fresh for the runner's
-      # platform. Trade-off: lockfile becomes advisory; supply-chain
-      # signature verification still runs in the next step.
       - name: Install dependencies
-        run: |
-          rm -f package-lock.json
-          npm install --no-audit --no-fund
+        run: npm ci
 
       # Supply-chain gate. Runs before functional checks so a PR that
       # introduces a known-vulnerable runtime dep, or a tampered package
