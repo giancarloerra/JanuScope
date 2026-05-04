@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./januscope.png" alt="JanuScope logo" width="250px" height="250px"/>
+  <img src="./januscope.png" alt="JanuScope logo" width="500" height="500" />
 </p>
 
 # JanuScope
@@ -21,10 +21,10 @@ JanuScope **hides the dangerous tools**, **scrubs PII** out of returned values b
 
 One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. Bundled lenses cover **databases, SaaS APIs (Stripe, Notion, Atlassian, Linear), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** across a multi-question session on Postgres (median of 4 runs). **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
 
+> 🧠 **Need codebase understanding together with MCP governance?** See our sibling project [**SocratiCode**](https://github.com/giancarloerra/socraticode) — local-first codebase intelligence: semantic search, dependency graphs, symbol-level impact analysis.
+
 <p align="center">
-  Kindly sponsored by <a href="https://altaire.com">Altaire Limited</a>,
-  alongside <a href="https://github.com/giancarloerra/socraticode">SocratiCode</a>,
-  our semantic-indexing toolkit for large codebases.
+  Kindly sponsored by <a href="https://altaire.com">Altaire Limited</a>.
   We also offer a <a href="./LICENSE-COMMERCIAL">commercial license</a>
   for organisations where AGPL is a blocker.
 </p>
