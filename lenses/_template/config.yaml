@@ -20,8 +20,13 @@ target:
   #
   # NEVER use `target.env` for operator-supplied connection details
   # like API keys, hosts, passwords. Those come from the user's
-  # MCP-client config and inherit through to the spawned target
-  # automatically (process.env passes through child_process spawn).
+  # MCP-client config and inherit through to direct child-process
+  # targets automatically (process.env passes through child_process
+  # spawn). EXCEPTION: containerised targets (`docker run`, `podman
+  # run`) do NOT inherit env automatically. Add an explicit `-e VAR`
+  # passthrough flag in `target.args` for each var the container
+  # needs (see lenses/dev-tools/github-official/config.yaml for the
+  # canonical pattern).
   #
   # NEVER use `target.env` to RENAME an env var (e.g. mapping
   # `${USER_FRIENDLY_NAME}` to `WHAT_THE_MCP_ACTUALLY_READS`). It
@@ -46,8 +51,9 @@ target:
 
 # OPTIONAL — first-use quarantine. Uncomment to fingerprint the static
 # lens surface on first launch; subsequent launches with a different
-# surface refuse to start until you re-run `januscope approve
-# --config <path>`. Defends against tool-poisoning (a malicious MCP
+# surface refuse to start until you re-run `januscope approve --config
+# <name>` (or `--config <path>` for an out-of-tree lens). Defends
+# against tool-poisoning (a malicious MCP
 # quietly adding a tool between runs).
 # firstRun: approve
 

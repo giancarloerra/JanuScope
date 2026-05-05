@@ -58,11 +58,18 @@ Strong recommendation: use a **read-only MongoDB user** for the connection strin
   "mcpServers": {
     "mongodb": {
       "command": "januscope",
-      "args": ["--config", "mongodb-official"]
+      "args": ["--config", "mongodb-official"],
+      "env": {
+        "MDB_MCP_CONNECTION_STRING": "mongodb+srv://user:pass@cluster.mongodb.net",
+        "MDB_MCP_API_CLIENT_ID": "<your_atlas_client_id>",
+        "MDB_MCP_API_CLIENT_SECRET": "<your_atlas_client_secret>"
+      }
     }
   }
 }
 ```
+
+The `MDB_MCP_*` vars above are exactly what `mongodb-mcp-server` itself reads. JanuScope does not rename them; the lens inherits whatever you set here straight through to the spawned target. Omit `MDB_MCP_API_CLIENT_ID` and `MDB_MCP_API_CLIENT_SECRET` if you only need DB-level operations and not Atlas-management tools.
 
 ## Changelog
 

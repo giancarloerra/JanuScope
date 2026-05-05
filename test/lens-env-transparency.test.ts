@@ -80,6 +80,19 @@ function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
  *
  * Hardcoded constants like `ALLOW_INSERT_OPERATION: "false"` are
  * fine — they're the lens's policy contribution.
+ *
+ * Detection covers three shapes:
+ *   1. Exact `${VAR}` substitution (the simple rename / pass-through case).
+ *   2. Composed `prefix-${VAR}-suffix` interpolation (the sneaky rename case
+ *      that earlier versions of this test missed; e.g. a regression like
+ *      `target.env: { DATABASE_URI: "postgres://${DATABASE_URL}/db" }` would
+ *      slip through if we only matched whole-string substitutions).
+ *   3. Multiple `${A}` and `${B}` substitutions in the same value.
+ *
+ * Plain shell-style `$VAR` (no braces) is not actually supported by
+ * JanuScope's substitution engine — values without braces pass through as
+ * literal strings — but we flag them too so future contributors don't get
+ * a false positive from "this looks like substitution but isn't" code.
  */
 function findOperatorEnvEntries(env: LensTargetEnv): Array<{
   key: string;
@@ -87,15 +100,25 @@ function findOperatorEnvEntries(env: LensTargetEnv): Array<{
   kind: "rename" | "same-name";
 }> {
   const flagged: Array<{ key: string; value: string; kind: "rename" | "same-name" }> = [];
+  // Match either ${VAR} (engine-supported) or $VAR (forward-compat).
+  const substitutionRe = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
   for (const [key, value] of Object.entries(env)) {
     if (typeof value !== "string") continue;
-    const match = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-    if (!match) continue; // not a substitution → it's a hardcode constant
-    const sourceName = match[1]!;
+    const matches = [...value.matchAll(substitutionRe)];
+    if (matches.length === 0) continue; // no substitutions → hardcoded constant
+    const sourceNames = matches.map((m) => m[1] ?? m[2]).filter((n): n is string => Boolean(n));
+    // "same-name" only if the WHOLE value is a single ${KEY} substitution.
+    // Composed strings like `${A}-suffix` or `${A}/${B}` are renames,
+    // even if A === key — the literal portion makes it a rewrite.
+    const wholeValueIsExactRef =
+      matches.length === 1 &&
+      matches[0]![0] === value &&
+      sourceNames.length === 1 &&
+      sourceNames[0] === key;
     flagged.push({
       key,
       value,
-      kind: sourceName === key ? "same-name" : "rename",
+      kind: wholeValueIsExactRef ? "same-name" : "rename",
     });
   }
   return flagged;
@@ -154,5 +177,66 @@ describe("lens transparency: known policy hardcodes ARE preserved", () => {
   it("clickhouse-official keeps CLICKHOUSE_SECURE=true hardcode", () => {
     const env = find("databases/clickhouse-official").target?.env ?? {};
     expect(env.CLICKHOUSE_SECURE).toBe("true");
+  });
+});
+
+/*
+ * Pin the detector itself: the previous version of this test only matched
+ * exact `${VAR}` substitutions and missed composed-string renames. These
+ * unit tests prove the detector now catches both the obvious and the sneaky
+ * shapes; if a future refactor narrows the detection back, the regression
+ * lands here, not on a real lens at production time.
+ */
+describe("findOperatorEnvEntries: detector coverage", () => {
+  it("flags exact ${VAR} substitution as same-name when key matches", () => {
+    const flagged = findOperatorEnvEntries({ FOO: "${FOO}" });
+    expect(flagged).toEqual([{ key: "FOO", value: "${FOO}", kind: "same-name" }]);
+  });
+
+  it("flags exact ${VAR} substitution as rename when key differs", () => {
+    const flagged = findOperatorEnvEntries({ DATABASE_URI: "${DATABASE_URL}" });
+    expect(flagged).toEqual([{ key: "DATABASE_URI", value: "${DATABASE_URL}", kind: "rename" }]);
+  });
+
+  it("flags composed strings as rename even when source name matches the key", () => {
+    // The literal portions (`postgres://`, `:5432/db`) make this a rewrite,
+    // not a transparent pass-through.
+    const flagged = findOperatorEnvEntries({
+      DATABASE_URI: "postgres://${DATABASE_URI}:5432/db",
+    });
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]!.kind).toBe("rename");
+  });
+
+  it("flags composed strings with unrelated source names as rename", () => {
+    const flagged = findOperatorEnvEntries({
+      MYSQL_URL: "mysql://${MYSQL_USER}:${MYSQL_PASS}@${MYSQL_HOST}/${MYSQL_DB}",
+    });
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]!.kind).toBe("rename");
+  });
+
+  it("flags brace-less $VAR substitutions (forward-compat catch)", () => {
+    // Bare `$VAR` is not actually supported by JanuScope's substitution
+    // engine, but a contributor writing it has the same forbidden intent
+    // as `${VAR}` and we want CI to catch it. Classification follows the
+    // same logic as braces: source name matches key → "same-name".
+    const sameName = findOperatorEnvEntries({ FOO: "$FOO" });
+    expect(sameName).toHaveLength(1);
+    expect(sameName[0]!.kind).toBe("same-name");
+    // And the rename variant.
+    const rename = findOperatorEnvEntries({ MY_VAR: "$OTHER_VAR" });
+    expect(rename).toHaveLength(1);
+    expect(rename[0]!.kind).toBe("rename");
+  });
+
+  it("does not flag hardcoded constant values (the policy case)", () => {
+    expect(findOperatorEnvEntries({ ALLOW_INSERT_OPERATION: "false" })).toEqual([]);
+    expect(findOperatorEnvEntries({ CLICKHOUSE_SECURE: "true" })).toEqual([]);
+    expect(findOperatorEnvEntries({ MAX_CONNECTIONS: "10" })).toEqual([]);
+  });
+
+  it("does not flag empty env blocks", () => {
+    expect(findOperatorEnvEntries({})).toEqual([]);
   });
 });
