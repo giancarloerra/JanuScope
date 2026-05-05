@@ -4,6 +4,21 @@ All notable changes to JanuScope are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [0.4.1](https://github.com/giancarloerra/januscope/compare/v0.4.0...v0.4.1) (2026-05-05)
+
+### Bug Fixes
+
+* add startup boot summary so operators can see the wrap is live ([dcae34b](https://github.com/giancarloerra/januscope/commit/dcae34baf50e55c6ed95ca07809f80a405d357fb))
+* **boot-summary:** address CodeRabbit nitpicks on PR [#11](https://github.com/giancarloerra/januscope/issues/11) ([d8bf55e](https://github.com/giancarloerra/januscope/commit/d8bf55e906d1a1e82779c846ed258ba2c0bd37d5))
+* **lenses:** add MS SQL via DAB, Oracle SQLcl, Supabase self-host ([090eae1](https://github.com/giancarloerra/januscope/commit/090eae1d832c5c5936fecf2ce0a2312cc031ded7))
+* **readme:** bump hero blurb to 15 bundled Lenses + link to Quick Start ([db37420](https://github.com/giancarloerra/januscope/commit/db374209facfcb2e24037e34dfb2a198448e8842)), closes [#option-a-use-a-bundled-lens-fastest-drop-in](https://github.com/giancarloerra/januscope/issues/option-a-use-a-bundled-lens-fastest-drop-in)
+* **readme:** update bundled-lens count header from 12 to 15 ([9d83231](https://github.com/giancarloerra/januscope/commit/9d83231da47c32c8f0586eff3739f95376b0d271))
+* **snyk:** refresh per-finding rationale and current line numbers ([0d52dfd](https://github.com/giancarloerra/januscope/commit/0d52dfd7f4c28871905b19fb5f55090b68b267e7))
+
+### Documentation
+
+* update README to highlight the relevance of JanuScope in preventing destructive actions ([d459a5d](https://github.com/giancarloerra/januscope/commit/d459a5db9a4fc6b236893651fd28cf86c16a2eb7))
+
 ## [0.4.0](https://github.com/giancarloerra/januscope/compare/v0.3.1...v0.4.0) (2026-05-05)
 
 ### Features
