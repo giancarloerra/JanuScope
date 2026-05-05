@@ -467,9 +467,9 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 </table>
 
 > **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up. Or [contribute one yourself](./lenses/CONTRIBUTING.md): it's a single YAML file plus a short README.
-
+>
 > **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Three exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes it as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **Redis** (`REDIS_URL`), **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those three.
-
+>
 > **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README.
 
 ### Option B: write your own policy
