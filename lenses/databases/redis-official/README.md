@@ -72,7 +72,7 @@ Required environment variable:
   "mcpServers": {
     "redis": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/redis-official/config.yaml"],
+      "args": ["--config", "redis-official"],
       "env": {
         "REDIS_URL": "rediss://default:your-token-here@your-endpoint.upstash.io:6379"
       }

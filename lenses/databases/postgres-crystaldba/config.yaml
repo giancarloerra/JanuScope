@@ -27,13 +27,11 @@ target:
     - "postgres-mcp"
     - "--access-mode=restricted" # MCP-layer read-only. sqlGuard is the
       # proxy-layer backstop below.
-  env:
-    # This Lens's user-facing env var is DATABASE_URL (the de-facto
-    # Postgres convention — Heroku, Vercel, Render, Fly all use it).
-    # The MCP itself expects DATABASE_URI, so we map here. Both
-    # target.env and dbSchema.connectionString below read from the
-    # same user-supplied $DATABASE_URL.
-    DATABASE_URI: "${DATABASE_URL}"
+  # No env block: the user supplies `DATABASE_URI` directly (that is the
+  # variable `postgres-mcp` itself reads). Whatever is in the calling
+  # MCP-client config's env block is inherited by JanuScope and then by
+  # the spawned target. Lens transparency — we never rename or override
+  # operator-supplied env vars. See lenses/CONTRIBUTING.md for the rule.
 
 # Data-sensitivity label — tags audit records and prepends a classification
 # banner to the instructions the LLM sees.
@@ -91,7 +89,7 @@ sqlGuard:
 # queries correctly on the first attempt.
 dbSchema:
   driver: postgres
-  connectionString: "${DATABASE_URL}"
+  connectionString: "${DATABASE_URI}"
   # For multi-schema deployments list every relevant namespace here.
   # Defaults to ["public"] when omitted.
   # schemas: ["public", "analytics"]

@@ -119,6 +119,22 @@ Both patterns live entirely in the `instructions` field, which is **deliberately
 
 A maintainer will review (see [First-PR review policy](#first-pr-review-policy) below for newcomers).
 
+## Lens transparency rule (read this before writing `target.env`)
+
+A lens must be **as transparent as possible** about how the wrapped MCP is configured. Concretely, that means:
+
+**Operator-supplied env vars are never renamed by the lens.** The user sets the same env-var names that the upstream MCP itself reads. If the upstream wants `DATABASE_URI`, the user sets `DATABASE_URI`. The lens does not "translate" `${DATABASE_URL}` → `DATABASE_URI` even when one feels more conventional than the other. Renaming creates surprise: the user copies their existing MCP-client config, JanuScope silently expects different names, and either nothing connects or (worse) the lens substitution overwrites the user's working env var with empty string.
+
+**Operator-supplied env vars are not re-declared in `target.env`.** For direct child-process targets, whatever the user sets in their MCP-client config's `"env"` block is inherited by JanuScope and then by the spawned target through `child_process.spawn` env merging. A lens that writes `target.env: { FOO: "${FOO}" }` is at best redundant and at worst breaks the inherited value when the substitution source isn't set. **Containerised targets are the exception**: if the lens runs `docker` or `podman`, the spawned `docker` process inherits the env, but the container it creates does NOT. You still need explicit `-e VAR` passthrough flags inside `target.args` to move selected env vars into the container. See `lenses/dev-tools/github-official/config.yaml` for the canonical pattern (`-e GITHUB_PERSONAL_ACCESS_TOKEN`, no `=`, which tells docker to forward the var from the calling environment).
+
+**The `target.env` block is for LENS POLICY VALUES ONLY.** Constants the lens decides for the user (`ALLOW_INSERT_OPERATION: "false"`, `CLICKHOUSE_SECURE: "true"`). Defence-in-depth hardcodes that should hold even if the user removes them from the client config.
+
+**The lens README documents which env vars the user must set.** Use the upstream MCP's actual variable names. Don't invent friendlier-looking names.
+
+If your lens has no policy-value env hardcodes, omit the `target.env` block entirely.
+
+> **Worked example — Postgres.** `crystaldba/postgres-mcp` reads `DATABASE_URI`. The bundled `postgres-crystaldba` lens does **not** set `target.env: { DATABASE_URI: "${DATABASE_URL}" }` — that would be a rename. The lens's `target.env` is omitted; the user sets `DATABASE_URI` in their client config and it inherits through.
+
 ## File structure
 
 ```

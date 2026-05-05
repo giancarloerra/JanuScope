@@ -35,19 +35,19 @@ target:
     - "-y"
     - "@benborla29/mcp-server-mysql"
   env:
-    # Most MySQL MCPs configure via env vars rather than connection string.
-    MYSQL_HOST: "${MYSQL_HOST}"
-    MYSQL_PORT: "${MYSQL_PORT}"
-    MYSQL_USER: "${MYSQL_USER}"
-    MYSQL_PASS: "${MYSQL_PASS}"
-    MYSQL_DB: "${MYSQL_DB}"
     # Hard "false" at the MCP layer — defence in depth. sqlGuard is the
     # primary enforcement but env flags are a second gate even if someone
-    # spawns the MCP directly without the proxy.
+    # spawns the MCP directly without the proxy. These are LENS POLICY,
+    # not user data, so we hardcode them rather than inherit.
     ALLOW_INSERT_OPERATION: "false"
     ALLOW_UPDATE_OPERATION: "false"
     ALLOW_DELETE_OPERATION: "false"
     ALLOW_DDL_OPERATION: "false"
+    # No connection-string vars here. MYSQL_HOST / MYSQL_PORT / MYSQL_USER /
+    # MYSQL_PASS / MYSQL_DB (the names @benborla29/mcp-server-mysql reads)
+    # come straight from the user's MCP-client config and are inherited
+    # transparently. Lens transparency: we never rename or override
+    # operator-supplied env vars. See lenses/CONTRIBUTING.md.
 
 # Block list is forward-looking defence. Matches nothing in stock
 # `@benborla29/mcp-server-mysql` — kept so forks or future versions

@@ -119,10 +119,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   let config: OverlayConfig;
   try {
     if (args.config) {
+      // `--config` accepts either a path to a YAML/JSON file or the
+      // bare name of a bundled lens (e.g. `postgres-crystaldba`). We
+      // detect the difference by shape rather than by trying both,
+      // so `--config nonexistent-lens` doesn't fall back to "treat
+      // it as a relative path" and produce a confusing fs error.
+      const resolvedPath = resolveConfigArg(args.config);
       // Async path supports `${vault://…}` / `${aws-sm://…}` /
       // `${1pw://…}` references transparently; it degrades to
       // the sync path's behaviour for plain env-var configs.
-      config = await loadConfigAsync(args.config);
+      config = await loadConfigAsync(resolvedPath);
     } else {
       config = buildConfigFromFlags(args);
     }
@@ -435,14 +441,20 @@ async function runApproveSubcommand(argv: string[]): Promise<number> {
   }
 
   let config: OverlayConfig;
+  let resolvedPath: string;
   try {
-    config = await loadConfigAsync(configPath);
+    // Same path-vs-name auto-detection as the main run-mode dispatcher
+    // (see resolveConfigArg). Lets `januscope approve --config <name>`
+    // work for bundled lenses without forcing the operator to chase
+    // down an absolute path.
+    resolvedPath = resolveConfigArg(configPath);
+    config = await loadConfigAsync(resolvedPath);
   } catch (err) {
     process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
   }
 
-  const resolvedPath = resolve(configPath);
+  resolvedPath = resolve(resolvedPath);
 
   // Step 1 — static. Always runs. The live probe below depends on
   // the static entry already existing in approved.json (so the live
@@ -519,6 +531,55 @@ async function runApproveSubcommand(argv: string[]): Promise<number> {
 }
 
 /* ─────────────────── helpers ─────────────────── */
+
+/**
+ * Resolve a `--config` argument to a YAML/JSON path on disk.
+ *
+ * The argument is either:
+ *   - the **bare name** of a bundled lens (e.g. `postgres-crystaldba`),
+ *     in which case we look it up in the bundled lens registry and
+ *     return the absolute path of its `config.yaml`; or
+ *   - a **path** to a YAML/JSON file (anything else), passed through
+ *     untouched so the existing loader can resolve it (relative,
+ *     absolute, `~`-prefixed, all handled downstream).
+ *
+ * The detection is shape-based, not "try one then the other": we want
+ * `--config postgres-typo` to fail fast with "no such bundled lens",
+ * not silently fall through to a confusing fs error about a relative
+ * path that doesn't exist.
+ *
+ * Anything that contains a path separator, starts with `.` or `~`, or
+ * ends in a YAML/JSON extension is a path. Everything else is a
+ * bundled-lens name. Lens names are always kebab-case identifiers
+ * with no dots or slashes, so the heuristic is unambiguous.
+ */
+function resolveConfigArg(value: string): string {
+  if (looksLikePath(value)) return value;
+  const result = loadLenses();
+  const found = result.lenses.find((l) => l.name === value);
+  if (!found) {
+    const available = result.lenses.map((l) => l.name).sort();
+    const sample = available.slice(0, 6).join(", ");
+    throw new Error(
+      `no bundled lens named "${value}" and value does not look like a path.\n` +
+        `  Available bundled lenses (${available.length} total): ${sample}${available.length > 6 ? ", ..." : ""}\n` +
+        `  Run \`januscope lenses list\` for the full list, or pass a YAML/JSON path.`,
+    );
+  }
+  return join(found.absolutePath, "config.yaml");
+}
+
+function looksLikePath(value: string): boolean {
+  if (value.length === 0) return false;
+  // Path separators (POSIX or Windows).
+  if (value.includes("/") || value.includes("\\")) return true;
+  // Relative or home-relative prefixes.
+  if (value.startsWith(".") || value.startsWith("~")) return true;
+  // YAML / JSON extensions.
+  const lower = value.toLowerCase();
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml") || lower.endsWith(".json")) return true;
+  return false;
+}
 
 function readPackageVersion(): string {
   const here = dirname(fileURLToPath(import.meta.url));
