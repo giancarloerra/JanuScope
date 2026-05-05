@@ -73,32 +73,406 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 ### Option A: use a bundled Lens (fastest, drop-in)
 
-For a supported target — Postgres, MySQL, MongoDB, SQLite, ClickHouse, Redis (incl. Upstash), GitHub, filesystem, Stripe, Notion, Atlassian, Linear — point `--config` at a **bundled lens by name**. JanuScope already knows where its bundled lenses live; you don't need a path.
+**Find your service in the table below**, copy the right-hand snippet into your MCP-client config (or change your existing entry — the diff is just `command` and `args`), restart your client. The env block stays exactly as it was. JanuScope inherits whatever env vars your client passes and forwards them to the wrapped MCP unchanged — no renames, no re-translation.
 
-Browse them:
+The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude Code, VS Code Copilot, Windsurf, Cline, Roo Code, anything that speaks MCP).
 
-```bash
-npx januscope lenses list                         # list every bundled lens
-npx januscope lenses show postgres-crystaldba     # print config + README
+<table>
+<thead>
+<tr>
+  <th>Service</th>
+  <th>Upstream MCP</th>
+  <th>Vanilla config</th>
+  <th>With JanuScope</th>
+</tr>
+</thead>
+<tbody>
+
+<tr>
+<td>PostgreSQL</td>
+<td><a href="https://github.com/crystaldba/postgres-mcp">crystaldba/postgres-mcp</a></td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": ["postgres-mcp"],
+  "env": {
+    "DATABASE_URI": "postgresql://user:pass@host:5432/db"
+  }
+}
 ```
 
-**If you already have an MCP entry**, the wrap is the smallest possible diff: change `command` to `npx`, change `args` to point JanuScope at the lens. Keep the env block exactly as it was — JanuScope inherits it and passes it through to the wrapped MCP unchanged. Lenses use the upstream MCP's own env-var names, never renames.
+</td>
+<td>
 
-```diff
- "postgres": {
--  "command": "uvx",
--  "args": ["postgres-mcp", "--access-mode=restricted"],
-+  "command": "npx",
-+  "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
-   "env": { "DATABASE_URI": "${DATABASE_URL}" }
- }
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
+  "env": {
+    "DATABASE_URI": "postgresql://user:pass@host:5432/db"
+  }
+}
 ```
 
-Same pattern for **Cursor** (`.cursor/mcp.json`), **Claude Code** (`claude mcp add januscope -- npx -y januscope --config postgres-crystaldba`), **VS Code Copilot** (`.vscode/mcp.json`), **Windsurf**, **Cline**, **Roo Code**, or any MCP host. JanuScope behaves like any other stdio MCP server, it just happens to wrap one.
+</td>
+</tr>
 
-> **Prefer a permanent install?** `npm install -g januscope` lets you shorten `command` to `januscope`. The `npx` pattern above works without installing anything.
+<tr>
+<td>MySQL</td>
+<td><a href="https://github.com/benborla/mcp-server-mysql">benborla/mcp-server-mysql</a></td>
+<td>
 
-Each Lens ships with sensible defaults (read-only, PII redaction on common column names, audit log in `~/`) and a README documenting which env vars you need to set — using the **upstream MCP's own variable names**. The lens never renames or re-translates them. Browse them in [the `lenses/` directory](./lenses).
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@benborla29/mcp-server-mysql"],
+  "env": {
+    "MYSQL_HOST": "localhost",
+    "MYSQL_PORT": "3306",
+    "MYSQL_USER": "readonly",
+    "MYSQL_PASS": "<your_password>",
+    "MYSQL_DB": "mydb"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "mysql-benborla29"],
+  "env": {
+    "MYSQL_HOST": "localhost",
+    "MYSQL_PORT": "3306",
+    "MYSQL_USER": "readonly",
+    "MYSQL_PASS": "<your_password>",
+    "MYSQL_DB": "mydb"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>MongoDB</td>
+<td><a href="https://github.com/mongodb-js/mongodb-mcp-server">mongodb-js/mongodb-mcp-server</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "mongodb-mcp-server"],
+  "env": {
+    "MDB_MCP_CONNECTION_STRING": "mongodb+srv://user:pass@cluster.mongodb.net"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "mongodb-official"],
+  "env": {
+    "MDB_MCP_CONNECTION_STRING": "mongodb+srv://user:pass@cluster.mongodb.net"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>ClickHouse</td>
+<td><a href="https://github.com/ClickHouse/mcp-clickhouse">ClickHouse/mcp-clickhouse</a></td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": ["mcp-clickhouse"],
+  "env": {
+    "CLICKHOUSE_HOST": "myhost.clickhouse.cloud",
+    "CLICKHOUSE_PORT": "8443",
+    "CLICKHOUSE_USER": "readonly",
+    "CLICKHOUSE_PASSWORD": "<your_password>",
+    "CLICKHOUSE_DATABASE": "default",
+    "CLICKHOUSE_SECURE": "true"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "clickhouse-official"],
+  "env": {
+    "CLICKHOUSE_HOST": "myhost.clickhouse.cloud",
+    "CLICKHOUSE_PORT": "8443",
+    "CLICKHOUSE_USER": "readonly",
+    "CLICKHOUSE_PASSWORD": "<your_password>",
+    "CLICKHOUSE_DATABASE": "default"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Redis</td>
+<td><a href="https://github.com/redis/mcp-redis">redis/mcp-redis</a></td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": [
+    "--from",
+    "redis-mcp-server@latest",
+    "redis-mcp-server",
+    "--url",
+    "redis://localhost:6379/0"
+  ]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "redis-official"],
+  "env": {
+    "REDIS_URL": "redis://localhost:6379/0"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>SQLite</td>
+<td><a href="https://github.com/panasenco/mcp-sqlite">panasenco/mcp-sqlite</a></td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": ["mcp-sqlite", "/path/to/your.sqlite"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "sqlite-panasenco"],
+  "env": {
+    "SQLITE_DB_PATH": "/path/to/your.sqlite"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Filesystem</td>
+<td><a href="https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem">modelcontextprotocol/server-filesystem</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/Desktop"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "filesystem-mcp-official"],
+  "env": {
+    "FILESYSTEM_ALLOWED_DIR": "/Users/you/Desktop"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>GitHub</td>
+<td><a href="https://github.com/github/github-mcp-server">github/github-mcp-server</a></td>
+<td>
+
+```json
+{
+  "command": "docker",
+  "args": [
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "ghcr.io/github/github-mcp-server"
+  ],
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "<your_PAT>"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "github-official"],
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "<your_PAT>"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Stripe</td>
+<td><a href="https://docs.stripe.com/mcp">@stripe/mcp</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "@stripe/mcp"],
+  "env": {
+    "STRIPE_SECRET_KEY": "rk_live_<restricted_key>"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "stripe-official"],
+  "env": {
+    "STRIPE_SECRET_KEY": "rk_live_<restricted_key>"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Notion</td>
+<td><a href="https://developers.notion.com/guides/mcp/get-started-with-mcp">Notion MCP</a> (mcp.notion.com/mcp)</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "notion-official"]
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Atlassian (Jira / Confluence)</td>
+<td><a href="https://github.com/atlassian/atlassian-mcp-server">atlassian/atlassian-mcp-server</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://mcp.atlassian.com/v1/mcp"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "atlassian-official"]
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Linear</td>
+<td><a href="https://linear.app/docs/mcp">Linear MCP</a> (mcp.linear.app)</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://mcp.linear.app/sse"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "linear-remote"]
+}
+```
+
+</td>
+</tr>
+
+</tbody>
+</table>
+
+> **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up — or [contribute one yourself](./lenses/CONTRIBUTING.md), it's a single YAML file plus a short README.
+
+> **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Three exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes it as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **Redis** (`REDIS_URL`), **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those three.
+
+> **Prefer a permanent install?** `npm install -g januscope` lets you shorten `command` to `januscope`. The `npx` pattern works without installing anything.
+
+> **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README.
 
 ### Option B: write your own policy
 
@@ -281,7 +655,7 @@ One Lens per service, pointing at the official vendor MCP where one exists. Comm
 
 The value of the tool compounds with every new lens. If you run JanuScope against an MCP that isn't listed here, please [contribute a lens](./lenses/CONTRIBUTING.md), it takes ~15 minutes and helps everyone using that MCP afterwards. MCP authors are especially welcome to submit a lens for their own server.
 
-- **Don't want to write the lens yourself?** [Open a lens request](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.md) and a maintainer or community contributor will pick it up when the target MCP looks tractable.
+- **Don't want to write the lens yourself?** [Open a lens request](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) and a maintainer or community contributor will pick it up when the target MCP looks tractable.
 
 > **Tool names differ per MCP.** Before writing your policy, run `tools/list` against the target MCP once to see what it actually exposes. Each lens's README documents which tool names it assumes so you can adapt for forks or alternatives.
 
