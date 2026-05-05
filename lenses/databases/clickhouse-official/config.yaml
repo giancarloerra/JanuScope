@@ -16,11 +16,12 @@ target:
   args:
     - "mcp-clickhouse"
   env:
-    CLICKHOUSE_HOST: "${CLICKHOUSE_HOST}"
-    CLICKHOUSE_PORT: "${CLICKHOUSE_PORT}"
-    CLICKHOUSE_USER: "${CLICKHOUSE_USER}"
-    CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
-    CLICKHOUSE_DATABASE: "${CLICKHOUSE_DATABASE}"
+    # Hardcoded LENS POLICY: force TLS to the ClickHouse server. Lens
+    # transparency rule (see lenses/CONTRIBUTING.md) — env values that
+    # are operator-supplied connection details (CLICKHOUSE_HOST / PORT /
+    # USER / PASSWORD / DATABASE) are inherited from the calling MCP-
+    # client config, not re-declared here. The user sets the same names
+    # the upstream `mcp-clickhouse` reads.
     CLICKHOUSE_SECURE: "true"
 
 # Data-sensitivity label — tags audit records and prepends a classification

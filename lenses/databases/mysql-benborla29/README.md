@@ -62,7 +62,7 @@ Notes:
   "mcpServers": {
     "analytics_mysql": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/mysql-benborla29/config.yaml"]
+      "args": ["--config", "mysql-benborla29"]
     }
   }
 }

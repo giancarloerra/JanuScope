@@ -16,15 +16,14 @@ target:
   args:
     - "-y"
     - "@stripe/mcp"
-  env:
-    # Pass the key via env, NOT --api-key=…. CLI arguments show up in
-    # `ps aux`, process accounting, and any crash-dump that captures
-    # argv; env vars don't. The @stripe/mcp binary reads
-    # STRIPE_SECRET_KEY as a documented fallback when --api-key is
-    # absent (see `apiKey = options.apiKey || process.env.STRIPE_SECRET_KEY`
-    # in its cli.js). Still put a *restricted* key (rk_*) here, not
-    # a full sk_*; see below.
-    STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY}"
+  # No env block. The user sets STRIPE_SECRET_KEY in their MCP-client
+  # config (or shell), it inherits to JanuScope and to the spawned
+  # @stripe/mcp child. Stripe's MCP reads `process.env.STRIPE_SECRET_KEY`
+  # as a documented fallback when --api-key is absent (verified in its
+  # dist/cli.js: `apiKey = options.apiKey || process.env.STRIPE_SECRET_KEY`).
+  # Lens transparency: never rename or override operator-supplied env vars.
+  # Use a RESTRICTED key (rk_*), not a full sk_*; see README "Three layers".
+  #
   # Tool-surface gating lives UPSTREAM in Stripe's Restricted API Key
   # (RAK) system, not in this config. The MCP's former `--tools=all`
   # flag was removed in @stripe/mcp 0.3+ and is now a no-op (the

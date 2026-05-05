@@ -39,13 +39,15 @@ Partial — the MongoDB MCP is iterated on regularly and adds tools. This list c
 
 ## Customising
 
-Required environment variables:
+Required environment variables (these are the names `mongodb-mcp-server`
+itself reads — JanuScope doesn't rename them, the lens inherits them
+straight through from the calling MCP-client config):
 
-| Variable                      | Purpose                          |
-| ----------------------------- | -------------------------------- |
-| `MONGODB_CONNECTION_STRING`   | Standard MongoDB connection URI  |
-| `MONGODB_ATLAS_CLIENT_ID`     | Required if you want Atlas tools |
-| `MONGODB_ATLAS_CLIENT_SECRET` | Required if you want Atlas tools |
+| Variable                    | Purpose                          |
+| --------------------------- | -------------------------------- |
+| `MDB_MCP_CONNECTION_STRING` | Standard MongoDB connection URI  |
+| `MDB_MCP_API_CLIENT_ID`     | Required if you want Atlas tools |
+| `MDB_MCP_API_CLIENT_SECRET` | Required if you want Atlas tools |
 
 Strong recommendation: use a **read-only MongoDB user** for the connection string. The MongoDB MCP's "require confirmation" mode for destructive tools is bypassed by blocking the tools entirely — if you want an additional physical backstop, the database user is the right place.
 
@@ -56,7 +58,7 @@ Strong recommendation: use a **read-only MongoDB user** for the connection strin
   "mcpServers": {
     "mongodb": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/mongodb-official/config.yaml"]
+      "args": ["--config", "mongodb-official"]
     }
   }
 }

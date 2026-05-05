@@ -53,7 +53,7 @@ Strong recommendation: connect as a **read-only ClickHouse user** (`CREATE USER 
   "mcpServers": {
     "clickhouse": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/clickhouse-official/config.yaml"]
+      "args": ["--config", "clickhouse-official"]
     }
   }
 }

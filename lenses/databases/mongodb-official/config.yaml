@@ -22,10 +22,13 @@ target:
   args:
     - "-y"
     - "mongodb-mcp-server"
-  env:
-    MDB_MCP_CONNECTION_STRING: "${MONGODB_CONNECTION_STRING}"
-    MDB_MCP_API_CLIENT_ID: "${MONGODB_ATLAS_CLIENT_ID}"
-    MDB_MCP_API_CLIENT_SECRET: "${MONGODB_ATLAS_CLIENT_SECRET}"
+  # No env block: the user supplies the MDB_MCP_* variables directly
+  # (those are exactly what mongodb-mcp-server reads). Whatever is in
+  # the calling MCP-client config's env is inherited by JanuScope and
+  # then by the spawned target. Lens transparency — we never rename
+  # or override operator-supplied env vars. See lenses/CONTRIBUTING.md
+  # for the rule. Required: MDB_MCP_CONNECTION_STRING. Optional Atlas:
+  # MDB_MCP_API_CLIENT_ID, MDB_MCP_API_CLIENT_SECRET.
 
 # Data-sensitivity label — tags audit records and prepends a classification
 # banner to the instructions the LLM sees.

@@ -3,7 +3,8 @@
 # See ../CONTRIBUTING.md for the full submission guide.
 #
 # Use with (after renaming the folder):
-#   januscope --config ./<category>/<mcp-name>/config.yaml
+#   januscope --config <mcp-name>                 # bundled lens by name
+#   januscope --config ./<category>/<mcp-name>/config.yaml   # path
 # ─────────────────────────────────────────────────────────────────────────
 
 # REQUIRED — the MCP server this lens wraps.
@@ -12,15 +13,27 @@ target:
   args:
     - "-y"
     - "<the-package-name-of-the-mcp-you-are-wrapping>"
-  # Optional environment passed to the target process. Use ${VAR} to
-  # avoid hardcoded secrets — see README.md frontmatter for required vars.
-  # Alongside plain env vars, three credential-vault references are
-  # supported (resolved at startup, requires `januscope --config …`
-  # which uses the async loader):
-  #   ${vault://<mount>/<path>#<field>}      HashiCorp Vault (KV v2)
-  #   ${aws-sm://<arn-or-name>#<field>}      AWS Secrets Manager
-  #   ${1pw://vaults/<v>/items/<i>/fields/<f>}  1Password
-  env: {}
+  # LENS TRANSPARENCY RULE — read carefully before adding anything here.
+  #
+  # `target.env` is for LENS POLICY VALUES ONLY (constants the lens
+  # decides for the user, like `ALLOW_INSERT_OPERATION: "false"`).
+  #
+  # NEVER use `target.env` for operator-supplied connection details
+  # like API keys, hosts, passwords. Those come from the user's
+  # MCP-client config and inherit through to the spawned target
+  # automatically (process.env passes through child_process spawn).
+  #
+  # NEVER use `target.env` to RENAME an env var (e.g. mapping
+  # `${USER_FRIENDLY_NAME}` to `WHAT_THE_MCP_ACTUALLY_READS`). It
+  # confuses users, breaks drop-in wrapping, and the substitution
+  # silently overwrites inherited values when the source isn't set.
+  #
+  # The lens README documents the env-var names the upstream MCP
+  # itself reads. The user sets those names directly. The lens does
+  # not translate.
+  #
+  # If your wrapped MCP has no policy hardcodes, omit the env block
+  # entirely (do not write `env: {}` — that's just noise).
 
 # OPTIONAL — data-sensitivity label. One of:
 #   public      non-sensitive data; normal care applies

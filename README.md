@@ -71,35 +71,34 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 > **Only [Node.js 20+](https://nodejs.org/) required.** No install step, `npx` fetches and caches JanuScope on first use.
 
-**Point your MCP client at `npx januscope` with your policy file.** Example for Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+### Option A: use a bundled Lens (fastest, drop-in)
 
-```json
-{
-  "mcpServers": {
-    "my_postgres": {
-      "command": "npx",
-      "args": ["-y", "januscope", "--config", "/Users/you/januscope/postgres.yaml"]
-    }
-  }
-}
-```
+For a supported target — Postgres, MySQL, MongoDB, SQLite, ClickHouse, Redis (incl. Upstash), GitHub, filesystem, Stripe, Notion, Atlassian, Linear — point `--config` at a **bundled lens by name**. JanuScope already knows where its bundled lenses live; you don't need a path.
 
-Same pattern for **Cursor** (`.cursor/mcp.json`), **Claude Code** (`claude mcp add januscope -- npx -y januscope --config /path/to/policy.yaml`), **VS Code Copilot** (`.vscode/mcp.json`), **Windsurf**, **Cline**, **Roo Code**, or any MCP host. JanuScope behaves like any other stdio MCP server, it just happens to wrap one.
-
-> **Prefer a permanent install?** `npm install -g januscope` lets you shorten `command` to `januscope`. The `npx` pattern above works without installing anything.
-
-### Option A: use a bundled Lens (fastest)
-
-For a supported target, Postgres, MySQL, MongoDB, SQLite, ClickHouse, Redis (incl. Upstash), GitHub, filesystem, Stripe, Notion, Atlassian, Linear, point `--config` at a bundled Lens. Browse and inspect them:
+Browse them:
 
 ```bash
 npx januscope lenses list                         # list every bundled lens
 npx januscope lenses show postgres-crystaldba     # print config + README
 ```
 
-Then point your MCP client at the lens's `config.yaml`, the CLI tells you the absolute path in the `show` output.
+**If you already have an MCP entry**, the wrap is the smallest possible diff: change `command` to `npx`, change `args` to point JanuScope at the lens. Keep the env block exactly as it was — JanuScope inherits it and passes it through to the wrapped MCP unchanged. Lenses use the upstream MCP's own env-var names, never renames.
 
-Each Lens ships with sensible defaults (read-only, PII redaction on common column names, audit log in `~/`) and a README documenting which env vars you need to set. Browse them in [the `lenses/` directory](./lenses).
+```diff
+ "postgres": {
+-  "command": "uvx",
+-  "args": ["postgres-mcp", "--access-mode=restricted"],
++  "command": "npx",
++  "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
+   "env": { "DATABASE_URI": "${DATABASE_URL}" }
+ }
+```
+
+Same pattern for **Cursor** (`.cursor/mcp.json`), **Claude Code** (`claude mcp add januscope -- npx -y januscope --config postgres-crystaldba`), **VS Code Copilot** (`.vscode/mcp.json`), **Windsurf**, **Cline**, **Roo Code**, or any MCP host. JanuScope behaves like any other stdio MCP server, it just happens to wrap one.
+
+> **Prefer a permanent install?** `npm install -g januscope` lets you shorten `command` to `januscope`. The `npx` pattern above works without installing anything.
+
+Each Lens ships with sensible defaults (read-only, PII redaction on common column names, audit log in `~/`) and a README documenting which env vars you need to set — using the **upstream MCP's own variable names**. The lens never renames or re-translates them. Browse them in [the `lenses/` directory](./lenses).
 
 ### Option B: write your own policy
 
@@ -109,8 +108,9 @@ A minimal Postgres policy (`~/januscope/postgres.yaml`):
 target:
   command: uvx
   args: ["postgres-mcp", "--access-mode=restricted"]
-  env:
-    DATABASE_URI: "${DATABASE_URL}"
+  # No `env:` here — DATABASE_URI is supplied by the user via their
+  # MCP-client config (or shell env) and inherits through to the
+  # spawned target. The lens never renames operator env vars.
 
 # Append policy text to every tool description the LLM sees.
 instructions: |
@@ -120,7 +120,7 @@ instructions: |
 # LLM writes correct queries on the first call.
 dbSchema:
   driver: postgres
-  connectionString: "${DATABASE_URL}"
+  connectionString: "${DATABASE_URI}"
   tables: [orders, products, customers]
   injectInto: [execute_sql]
 
@@ -140,9 +140,11 @@ audit:
   sink: "~/mcp-audit.jsonl"
 ```
 
-Restart your client. Done. The LLM now sees an `execute_sql` tool with your real schema baked into its description, can't run mutations or call `pg_sleep`, sees SSNs and emails as `[REDACTED]`, and every call lands in the audit log.
+Point `--config` at the absolute path of your YAML, set `DATABASE_URI` in your client config's env block, restart the client. Done. The LLM now sees an `execute_sql` tool with your real schema baked into its description, can't run mutations or call `pg_sleep`, sees SSNs and emails as `[REDACTED]`, and every call lands in the audit log.
 
 Same six-overlay pattern applies to non-database MCPs, drop `dbSchema` and `sqlGuard`, keep `block` / `instructions` / `redact` / `audit`. See the bundled Lenses in [`lenses/`](./lenses) for real examples covering GitHub, the filesystem, Stripe, Notion, Atlassian, and Linear.
+
+> **Lens transparency rule.** A lens never renames operator-supplied env vars and never declares them in `target.env` just to pass them through. The user sets the env var the upstream MCP itself reads, in their MCP-client config, and JanuScope inherits it. Only **policy hardcodes** (constants the lens decides for the user, like `ALLOW_INSERT_OPERATION: "false"` or `CLICKHOUSE_SECURE: "true"`) belong in `target.env`. See [`lenses/CONTRIBUTING.md`](./lenses/CONTRIBUTING.md#lens-transparency-rule-read-this-before-writing-targetenv) for the full rule.
 
 ## Why JanuScope
 

@@ -36,14 +36,14 @@ Verified against `tools/list` live on 2026-04-19 — 9 tools in restricted mode:
 
 ## Prerequisites
 
-- **Read-only Postgres role at the data path** (layer 3, mandatory for production). Provision a user with `GRANT SELECT ON ...` only — no INSERT/UPDATE/DELETE/TRUNCATE/DDL grants. Use that user's credentials in `DATABASE_URL`. JanuScope's block list, sqlGuard, and SURFACE BOUNDARY policy are layers 1 and 2 (defence in depth); only the role physically prevents writes if the agent host runs `psql`, `pg_dump`, or another tool surface against the same database, AND it closes the UDF-name bypass class (`SELECT schema.delete_all()`) that no proxy-layer guard can catch. See [SECURITY.md](../../../SECURITY.md#three-layer-model) for the full model.
+- **Read-only Postgres role at the data path** (layer 3, mandatory for production). Provision a user with `GRANT SELECT ON ...` only — no INSERT/UPDATE/DELETE/TRUNCATE/DDL grants. Use that user's credentials in `DATABASE_URI`. JanuScope's block list, sqlGuard, and SURFACE BOUNDARY policy are layers 1 and 2 (defence in depth); only the role physically prevents writes if the agent host runs `psql`, `pg_dump`, or another tool surface against the same database, AND it closes the UDF-name bypass class (`SELECT schema.delete_all()`) that no proxy-layer guard can catch. See [SECURITY.md](../../../SECURITY.md#three-layer-model) for the full model.
 - `uvx` available; install with `pipx install uv` or `brew install uv` if you don't have it.
 
 ## Customising
 
 Required environment variable:
 
-- `DATABASE_URL` — Postgres connection string, e.g. `postgresql://user:pass@host:5432/db`
+- `DATABASE_URI` — Postgres connection string, e.g. `postgresql://user:pass@host:5432/db`
 
 Optional — for multi-schema deployments uncomment and edit `dbSchema.schemas` in `config.yaml`:
 

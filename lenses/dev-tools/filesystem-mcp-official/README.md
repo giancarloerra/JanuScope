@@ -53,7 +53,7 @@ Required environment variable:
   "mcpServers": {
     "fs": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/filesystem-mcp-official/config.yaml"],
+      "args": ["--config", "filesystem-mcp-official"],
       "env": {
         "FILESYSTEM_ALLOWED_DIR": "/Users/you/projects/my-project"
       }

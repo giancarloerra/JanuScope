@@ -59,7 +59,7 @@ Required environment variable:
   "mcpServers": {
     "stripe": {
       "command": "januscope",
-      "args": ["--config", "/absolute/path/to/stripe-official/config.yaml"]
+      "args": ["--config", "stripe-official"]
     }
   }
 }

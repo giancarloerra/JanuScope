@@ -34,8 +34,13 @@ target:
     # the toolset — they're either mutation-heavy or rarely needed
     # for an LLM read-only session. Add back as needed.
     - "ghcr.io/github/github-mcp-server"
-  env:
-    GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  # No env block. The Docker `-e GITHUB_PERSONAL_ACCESS_TOKEN` form
+  # (no `=` after the var name) means "pass this var through from the
+  # current process's environment to the container." JanuScope's spawn
+  # inherits process.env from its parent (the MCP-client config), and
+  # docker forwards GITHUB_PERSONAL_ACCESS_TOKEN as-set. Lens
+  # transparency rule (see lenses/CONTRIBUTING.md) — we never rename
+  # or override operator-supplied env vars.
 
 # Data-sensitivity label — tags audit records and prepends a classification
 # banner to the instructions the LLM sees.
