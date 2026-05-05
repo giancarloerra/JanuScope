@@ -4,6 +4,23 @@ All notable changes to JanuScope are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [0.4.0](https://github.com/giancarloerra/januscope/compare/v0.3.1...v0.4.0) (2026-05-05)
+
+### Features
+
+* **cli,lenses:** --config accepts lens names; remove env renames; transparency rule ([7e37e35](https://github.com/giancarloerra/januscope/commit/7e37e3528fea4ca659c299361425c0735c3732a7))
+
+### Bug Fixes
+
+* **readme:** close last CodeRabbit thread (MD028 blockquote) ([7231300](https://github.com/giancarloerra/januscope/commit/7231300949c8a8abd2221ddb30e1cf6275a6bb69))
+* **test:** preserve cause on rethrows; discover lens categories dynamically ([ced7b67](https://github.com/giancarloerra/januscope/commit/ced7b67057a6e423fdc3b1fd5011d90c67bbda40))
+* **test:** wrap loadYaml in try/catch with lens-path context ([65d8819](https://github.com/giancarloerra/januscope/commit/65d881930a7f48779e51c98e76eb65ab11d8fd32))
+
+### Documentation
+
+* **readme:** add bundled-lens drop-in table to Quick Start ([4a05bbf](https://github.com/giancarloerra/januscope/commit/4a05bbfbc62d14e38747192dbf7b0fe90c3e3bd7))
+* **readme:** minor README updates ([2205d1c](https://github.com/giancarloerra/januscope/commit/2205d1cb20ab2c21a40312eae94d21da1ac1c6bd))
+
 ## [0.3.1](https://github.com/giancarloerra/januscope/compare/v0.3.0...v0.3.1) (2026-05-04)
 
 ### Bug Fixes
