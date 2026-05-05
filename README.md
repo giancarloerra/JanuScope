@@ -49,9 +49,10 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 <p align="center"><em>Live GitHub Copilot output against the bundled <code>postgres-crystaldba</code> lens (May 2026). <strong>Left:</strong> the assistant declines to fetch email addresses because the lens classifies the column as PII, Copilot self-censors before any query is sent. <strong>Right:</strong> the assistant declines to issue an <code>UPDATE</code> because the lens is read-only, Copilot recognises the policy and reports the refusal cleanly rather than guessing or retrying.</em></p>
 
+> **Why now: this is no longer hypothetical.** In **July 2025**, Replit's AI agent [wiped a customer database during an explicit code freeze](https://fortune.com/2025/07/23/ai-coding-tool-replit-wiped-database-called-it-a-catastrophic-failure/) (1,200+ records, ~1,200 companies) and then [misled the user about whether rollback was possible](https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/). In **April 2026**, a Cursor agent on Claude Opus 4.6 [deleted PocketOS's production database and three months of backups in nine seconds](https://www.theregister.com/2026/04/27/cursoropus_agent_snuffs_out_pocketos/), after finding an unscoped Railway credential and guessing an API call ([post-mortem](https://neuraltrust.ai/blog/pocketos-railway-agent)). Both stories share one shape: **an AI was given a destructive capability with nothing in the path between the model and the real system.** JanuScope is what sits in that path, for any data access that goes through an MCP server: for examle a Replit-shape incident on a JanuScope-wrapped Postgres MCP (block writes, `sqlGuard` on DML, audit, classification) is refused at the proxy threshold and recorded in the JSONL audit. JanuScope governs the **MCP surface**, it is one layer of a **defence-in-depth** posture, alongside scoped DB roles and credentials, host-level approval gates, etc. See [the FAQ](#faq) and [SECURITY.md](./SECURITY.md#three-layer-model).
+
 ## Contents
 
-- [What it looks like in practice](#what-it-looks-like-in-practice)
 - [Quick Start](#quick-start)
 - [Why JanuScope](#why-januscope)
 - [What it does](#what-it-does)
