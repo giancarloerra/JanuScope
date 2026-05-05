@@ -94,7 +94,18 @@ function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
           { cause: err },
         );
       }
-      const parsed = loadYaml(raw) as LensConfig;
+      // Wrap YAML parse errors so the failure message names the lens.
+      // Without this, a malformed config.yaml would surface as a raw
+      // js-yaml parser error with line / column but no lens identity,
+      // sending a contributor on a goose chase to find the offender.
+      let parsed: LensConfig;
+      try {
+        parsed = loadYaml(raw) as LensConfig;
+      } catch (err) {
+        throw new Error(`Failed to parse lens config at ${cfgPath} (lens ${cat}/${entry})`, {
+          cause: err,
+        });
+      }
       out.push({ name: `${cat}/${entry}`, config: parsed });
     }
   }
