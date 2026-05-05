@@ -17,6 +17,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { renderBootSummary, shouldPrintBootSummary } from "./boot-summary.js";
 import { loadConfigAsync, validateConfig, type OverlayConfig } from "./config.js";
 import { runOverlay } from "./index.js";
 import { loadLenses, type Lens } from "./lenses.js";
@@ -72,6 +73,10 @@ Quarantine:
   januscope approve --config <path>   Record the lens fingerprint. Required
                                       whenever a lens with \`firstRun: approve\`
                                       drifts from its last-approved surface.
+
+Environment:
+  JANUSCOPE_QUIET=1                   Suppress the startup boot summary on
+                                      stderr (also: JANUSCOPE_NO_BOOT_SUMMARY=1).
 
 Docs: https://github.com/giancarloerra/januscope
 `;
@@ -135,6 +140,21 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   } catch (err) {
     process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
     return 2;
+  }
+
+  // Boot summary — prints to stderr the version, target, and one line
+  // per active overlay so the operator can confirm at a glance that
+  // the wrap is live and the right policy is loaded. Stdout is the
+  // JSON-RPC pipe and is never touched here. Suppress with
+  // JANUSCOPE_QUIET=1 (broad) or JANUSCOPE_NO_BOOT_SUMMARY=1 (specific).
+  // The try/catch is defensive — a write to a closed stderr would
+  // throw EPIPE; cosmetic logging must never break the bridge.
+  if (shouldPrintBootSummary()) {
+    try {
+      process.stderr.write(renderBootSummary(config, readPackageVersion()));
+    } catch {
+      /* ignore — never let cosmetic logging block the bridge */
+    }
   }
 
   try {
