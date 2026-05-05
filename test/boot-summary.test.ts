@@ -105,6 +105,24 @@ describe("renderBootSummary", () => {
     expect(out).not.toContain("\r");
     expect(out.endsWith("\n")).toBe(true);
   });
+
+  it("collapses newlines / tabs in target tokens to single-line header", () => {
+    // A YAML scalar with a stray newline could otherwise produce a
+    // multi-line header that breaks the rest of the summary's shape.
+    const out = renderBootSummary(
+      {
+        target: { command: "node\nshady", args: ["arg1\twith\ttab", "arg2"] },
+      } as OverlayConfig,
+      "0.4.1",
+    );
+    const header = out.split("\n", 1)[0]!;
+    expect(header).toContain("node shady");
+    expect(header).toContain("arg1 with tab");
+    expect(header).not.toContain("\t");
+    // The full output's first newline is the terminator after the
+    // header, not a newline in the middle of the rendered command.
+    expect(header.startsWith("[januscope]")).toBe(true);
+  });
 });
 
 describe("shouldPrintBootSummary", () => {
@@ -151,15 +169,23 @@ describe("CLI boot summary", () => {
       input: "",
       timeout: 15_000,
     });
+    // A timed-out child still leaves whatever it managed to write on
+    // stderr — assertions on partial stderr could pass even if the
+    // process hung. Surface timeout/error explicitly so each test can
+    // refuse to consider a hung run a clean run.
+    const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
     return {
       stdout: r.stdout ?? "",
       stderr: r.stderr ?? "",
       status: typeof r.status === "number" ? r.status : -1,
+      timedOut,
+      signal: r.signal ?? null,
     };
   }
 
   it("emits the boot summary on stderr by default", () => {
     const r = runCliBriefly(["--target", `node ${FAKE_SERVER}`, "--block", "dangerous_delete"]);
+    expect(r.timedOut).toBe(false);
     // We don't care about exit code (the bridge teardown when stdin
     // closes is still a clean path), only that the summary appeared
     // before the bridge ran.
@@ -172,6 +198,7 @@ describe("CLI boot summary", () => {
     const r = runCliBriefly(["--target", `node ${FAKE_SERVER}`, "--block", "dangerous_delete"], {
       JANUSCOPE_QUIET: "1",
     });
+    expect(r.timedOut).toBe(false);
     expect(r.stderr).not.toContain("[januscope] v");
     expect(r.stderr).not.toContain("wrapping");
   });
@@ -180,6 +207,7 @@ describe("CLI boot summary", () => {
     const r = runCliBriefly(["--target", `node ${FAKE_SERVER}`, "--block", "dangerous_delete"], {
       JANUSCOPE_NO_BOOT_SUMMARY: "1",
     });
+    expect(r.timedOut).toBe(false);
     expect(r.stderr).not.toContain("[januscope] v");
     expect(r.stderr).not.toContain("wrapping");
   });

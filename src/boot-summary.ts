@@ -96,13 +96,27 @@ export function renderBootSummary(config: OverlayConfig, version: string): strin
  * Format the target command + args, truncating long arg lists so the
  * header line stays readable. The format mirrors how the operator
  * typed the command in their config: `<command> <arg1> <arg2> ...`.
+ *
+ * Each token is normalised through `toSingleLine` first so an
+ * accidentally-multiline `target.command` (or arg) cannot break the
+ * single-line header that the rest of the boot summary depends on.
  */
 function describeTarget(config: OverlayConfig): string {
-  const cmd = config.target.command;
-  const args = config.target.args ?? [];
+  const cmd = toSingleLine(config.target.command);
+  const args = (config.target.args ?? []).map(toSingleLine);
   const full = args.length > 0 ? `${cmd} ${args.join(" ")}` : cmd;
   if (full.length <= TARGET_MAX_WIDTH) return full;
   return full.slice(0, TARGET_MAX_WIDTH - 1) + "…";
+}
+
+/**
+ * Collapse any whitespace runs (including `\n`, `\r`, `\t`) to a single
+ * ASCII space and strip leading/trailing whitespace. Defends the boot
+ * summary against operator typos that would otherwise produce a
+ * multi-line header (e.g. a stray newline in a YAML scalar).
+ */
+function toSingleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 /**
