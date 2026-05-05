@@ -1,7 +1,8 @@
 # Snyk policy file
 #
 # Documents which Snyk Code findings are intentional / out-of-threat-model
-# for JanuScope. Re-evaluated whenever cli.ts or the test fixtures change.
+# for JanuScope. Re-evaluated on every src/cli.ts change (line numbers
+# shift) and whenever a new RegExp / fs / spawn call is introduced.
 #
 # Format reference:
 #   https://docs.snyk.io/manage-issues/policies/the-.snyk-file
@@ -9,6 +10,11 @@
 # CLI invocation:
 #   snyk code test            # source-side analysis
 #   snyk test                 # dependency-side analysis (covered by ci.yml)
+#
+# Last re-evaluation: 2026-05-05 against `snyk code test` on
+# fix/boot-summary @ dcae34b. Snyk reports 7 findings; all 7 are
+# documented below. None are introduced by the boot-summary patch
+# (verified by stash + re-run on main: same 7 reports).
 
 version: v1.25.0
 
@@ -21,51 +27,105 @@ exclude:
   code:
     - test/**
 
-# Per-finding rationale for issues Snyk Code surfaces in src/. Kept as a
-# documented denylist rather than UI-side ignores so the rationale lives
-# next to the code.
+# ─── Per-finding rationale ────────────────────────────────────────────
 #
-# javascript/PT at src/cli.ts:124, 331, 408 plus the contextInjection
-# textFile sink (overlays/contextInjection.ts) reachable from the same
-# data-flow source.
-#   Path traversal from a command-line --config argument into
-#   fs.readFileSync (either reading the lens config itself, or reading
-#   the textFile a lens points at via contextInjection). By design:
-#   JanuScope is a CLI; the operator supplies the lens path, and the
-#   lens supplies textFile. Both are within the operator's trust
-#   boundary — the same lens can already declare an arbitrary
-#   target.command. The "untrusted input" is the operator's own argv,
-#   which is the trust source for the entire process. Mitigation:
-#   none required at the CLI boundary; a hostile operator already has
-#   shell access. Defence-in-depth: the audit overlay records the
-#   resolved path on every startup, so post-incident forensics can see
-#   which file was loaded.
+# Kept as a documented denylist rather than UI-side ignores so the
+# rationale lives in-repo and version-controlled. Snyk continues to
+# report the findings (the rationale isn't an `ignore:` block); the
+# expectation is that every PR cross-references new scan output
+# against this file and only acts on genuinely new flows.
 #
-# javascript/IndirectCommandInjection at src/cli.ts:134
-#   The lens config tells JanuScope which MCP binary to spawn (target.
-#   command + args). Same trust model as PT above: the operator authored
-#   the lens; the spawn is operator-intent. spawn() is invoked without
-#   a shell (no `shell: true`), so command/args are passed as a fixed
-#   argv array, not interpolated into a shell command line. There is no
-#   string-interpolation path from network input to argv.
+# Line numbers below are post-PR-#11 positions in src/cli.ts; bump
+# them when the file shifts.
 #
-# javascript/reDOS at src/cli.ts:134 (data-flow, sink is _shared.ts:46)
-#   Patched 2026-05-04: compileToolMatcher now collapses consecutive
-#   `*` chars to a single one before regex compilation, so a glob like
-#   `**********` no longer produces N quantifiers worth of polynomial
-#   backtracking. See src/overlays/_shared.ts and the regression test
-#   in test/overlays/block.test.ts ("ReDoS regression"). If Snyk
-#   continues to flag the data flow after the fix, it is a stale alert
-#   on the source point rather than a real exploitable sink.
+# ─── PathTraversal × 4 ────────────────────────────────────────────────
 #
-# javascript/PrototypePollution at src/cli.ts:134 (data-flow, sinks in
-# src/quarantine.ts and src/overlays/audit.ts canonical-JSON helpers)
-#   Patched 2026-05-04: both `sortKeysRecursive` (quarantine.ts) and
-#   `sortKeys` (audit.ts) now build the canonical object with
-#   `Object.create(null)` so there is no Object.prototype to pollute,
-#   and explicitly skip `__proto__` / `constructor` / `prototype`
-#   keys when copying. A malicious upstream MCP returning a tool with
-#   `name: "__proto__"` (or smuggling the string through inputSchema)
-#   cannot mutate the proxy process. Snyk's static taint tracking
-#   does not model the safety of `Object.create(null)`, so the
-#   data-flow source point keeps showing up; the sink is closed.
+# javascript/PT at src/cli.ts:136, 161, 471 (lens-config / approve flow)
+# javascript/PT at src/cli.ts:358 (lens-show readFileSync)
+#
+# Source: command-line `--config <path>` argument.
+# Sinks:  fs.readFileSync inside loadConfigAsync / lens-show.
+#
+# By design: JanuScope is a CLI; the operator supplies the lens path,
+# and the bundled-lens registry maps `--config <name>` to a known
+# absolute path under lenses/. Both are within the operator's trust
+# boundary — a hostile operator already has shell access and could
+# read any file directly. The bundled-lens path (line 358) is
+# additionally bounded: `lens.absolutePath` comes from `loadLenses()`
+# which only enumerates files under the bundled `lenses/` tree.
+# Mitigation: defence-in-depth via the audit overlay's startup
+# record, which logs the resolved config path on every launch.
+#
+# ─── Command Injection × 1 ────────────────────────────────────────────
+#
+# javascript/IndirectCommandInjection at src/cli.ts:161
+#
+# Source: `--target` argv or `target.command` from the loaded lens.
+# Sink:   child_process.spawn inside transport/stdio.ts.
+#
+# spawn() is invoked WITHOUT `shell: true`, so command and args are
+# passed as a fixed argv array — there is no string-interpolation
+# path from any input to a shell command line. The whole point of
+# JanuScope is to spawn the operator-chosen MCP binary; the spawn
+# IS operator intent. Trust source same as PT above.
+#
+# ─── Prototype Pollution × 1 ──────────────────────────────────────────
+#
+# javascript/PrototypePollution at src/cli.ts:161
+#
+# Source: parsed YAML config (object keys could include `__proto__`).
+# Sinks:  canonical-JSON helpers in src/quarantine.ts (sortKeysRecursive)
+#         and src/overlays/audit.ts (sortKeys), reached via the audit /
+#         quarantine startup paths.
+#
+# Patched 2026-05-04, still in place 2026-05-05 (verified):
+#   - src/overlays/audit.ts:484 builds the canonical object with
+#     `Object.create(null) as Record<string, unknown>` — no
+#     Object.prototype to pollute.
+#   - src/quarantine.ts:491 same treatment for sortKeysRecursive.
+#   - Both helpers explicitly skip `__proto__` / `constructor` /
+#     `prototype` keys when copying.
+#
+# A malicious upstream MCP returning a tool with `name: "__proto__"`
+# (or smuggling the string through inputSchema / arguments) cannot
+# mutate the proxy process. Snyk's static taint tracking does not
+# model the safety of `Object.create(null)`, so the data-flow source
+# keeps showing up; the sink is closed.
+#
+# ─── ReDoS × 1 ────────────────────────────────────────────────────────
+#
+# javascript/reDOS at src/cli.ts:161
+#
+# Source: parsed YAML config (block globs and redact regexes).
+# Sinks:  three RegExp constructions, evaluated separately:
+#
+#   1. src/overlays/_shared.ts:55 (block-tool glob → regex)
+#      PATCHED: collapseStarsAndEscape replaces consecutive `*`
+#      characters with a single `*` before compilation, so a glob
+#      like `**********` no longer produces N quantifiers worth of
+#      polynomial backtracking. Regression test:
+#      test/overlays/block.test.ts "ReDoS regression".
+#
+#   2. src/overlays/sqlGuard.ts:117 (deny-keyword alternation)
+#      SAFE BY CONSTRUCTION: pattern is `\b(KW1|KW2|...)\b` over
+#      literal alternation of write-keyword strings. No quantifier
+#      nesting, no backreferences. Adding more keywords linearly
+#      lengthens the pattern but cannot induce catastrophic
+#      backtracking.
+#
+#   3. src/overlays/redact.ts:314 (operator-supplied regex)
+#      OPERATOR TRUST BOUNDARY (same model as PT / Command Injection):
+#      the regex string is authored by whoever wrote the lens YAML.
+#      A bad pattern is a self-DoS, not a privilege escalation. The
+#      input data the regex runs against is server-side MCP responses,
+#      not unlimited attacker-controlled input — bounded by the
+#      target MCP's response sizes. Defence-in-depth via per-tool
+#      rate limits caps how often a slow regex can be invoked.
+#
+#      KNOWN LIMITATION: there is no startup-side `safe-regex`-style
+#      check that rejects catastrophic patterns at config-load time.
+#      Tracked as future hardening — outside the scope of this PR
+#      (boot summary). Mitigations under consideration: pre-compile
+#      analysis via `safe-regex2` or `recheck`, or moving regex
+#      execution to a worker with a timeout. Either lands in its
+#      own PR with explicit benchmark + threat-model documentation.
