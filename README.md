@@ -12,8 +12,8 @@
   <a href="https://github.com/giancarloerra/januscope"><img src="https://img.shields.io/github/stars/giancarloerra/januscope?style=social" alt="GitHub stars"></a>
 </p>
 
-> _"Whatever you see anywhere — sky, sea, clouds, lands — all are **closed and opened by my hand**."_
-> — _Ovid, Fasti I, 117–18 (**Janus speaking**)_
+> _"Whatever you see anywhere (sky, sea, clouds, lands) are all **closed and opened by my hand**."_
+> _Ovid, Fasti I, 117–18 (**Janus speaking**)_
 
 **JanuScope is the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, and database-schema injection. Your tool traffic never leaves your machine.**
 
@@ -21,7 +21,7 @@ JanuScope **hides the dangerous tools**, **scrubs PII** out of returned values b
 
 One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. Bundled lenses cover **databases, SaaS APIs (Stripe, Notion, Atlassian, Linear), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** across a multi-question session on Postgres (median of 4 runs). **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
 
-> 🧠 **Need codebase understanding together with MCP governance?** See our sibling project [**SocratiCode**](https://github.com/giancarloerra/socraticode) — local-first codebase intelligence: semantic search, dependency graphs, symbol-level impact analysis.
+> 🧠 **Need codebase understanding together with MCP governance?** See our sibling project [**SocratiCode**](https://github.com/giancarloerra/socraticode): local-first codebase intelligence with semantic search, dependency graphs, symbol-level impact analysis.
 
 <p align="center">
   Kindly sponsored by <a href="https://altaire.com">Altaire Limited</a>.
@@ -73,7 +73,7 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 ### Option A: use a bundled Lens (fastest, drop-in)
 
-**Find your service in the table below**, copy the right-hand snippet into your MCP-client config (or change your existing entry — the diff is just `command` and `args`), restart your client. The env block stays exactly as it was. JanuScope inherits whatever env vars your client passes and forwards them to the wrapped MCP unchanged — no renames, no re-translation.
+**Find your service in the table below**, copy the right-hand snippet into your MCP-client config (or change your existing entry: the diff is just `command` and `args`), restart your client. The env block stays exactly as it was. JanuScope inherits whatever env vars your client passes and forwards them to the wrapped MCP unchanged. No renames, no re-translation.
 
 The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude Code, VS Code Copilot, Windsurf, Cline, Roo Code, anything that speaks MCP).
 
@@ -466,11 +466,9 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 </tbody>
 </table>
 
-> **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up — or [contribute one yourself](./lenses/CONTRIBUTING.md), it's a single YAML file plus a short README.
+> **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up. Or [contribute one yourself](./lenses/CONTRIBUTING.md): it's a single YAML file plus a short README.
 
 > **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Three exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes it as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **Redis** (`REDIS_URL`), **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those three.
-
-> **Prefer a permanent install?** `npm install -g januscope` lets you shorten `command` to `januscope`. The `npx` pattern works without installing anything.
 
 > **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README.
 
@@ -482,7 +480,7 @@ A minimal Postgres policy (`~/januscope/postgres.yaml`):
 target:
   command: uvx
   args: ["postgres-mcp", "--access-mode=restricted"]
-  # No `env:` here — DATABASE_URI is supplied by the user via their
+  # No `env:` here. DATABASE_URI is supplied by the user via their
   # MCP-client config (or shell env) and inherits through to the
   # spawned target. The lens never renames operator env vars.
 
@@ -509,7 +507,7 @@ redact:
     - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
     - field: "**.email"
 
-# Compliance log — one JSONL record per call.
+# Compliance log: one JSONL record per call.
 audit:
   sink: "~/mcp-audit.jsonl"
 ```
@@ -740,12 +738,12 @@ classification:
   public|internal|sensitive # optional lens data-sensitivity label.
   # When set, `instructions` prepends a short banner to
   # every tool description and `audit` tags every record
-  # with `classification: "<value>"`. Purely informational —
+  # with `classification: "<value>"`. Purely informational;
   # enforcement still lives in `block` / `sqlGuard` / `redact`.
 
 firstRun:
-  approve # optional; when set, the runtime fingerprints the lens —
-  # TWO independent layers, both stored in
+  approve # optional; when set, the runtime fingerprints the lens
+  # via TWO independent layers, both stored in
   # ~/.januscope/approved.json:
   #   (1) Static lens fingerprint: block rules + sqlGuard
   #       tools + rateLimit rules + redact rule shapes +
@@ -1103,7 +1101,7 @@ sqlGuard: # blocks dangerous SQL
   tools: [query]
 instructions: |
   STRICT POLICY. …
-redact: # LAST — scrubs before the model sees anything
+redact: # LAST: scrubs before the model sees anything
   rules:
     - field: "**.email"
 ```
