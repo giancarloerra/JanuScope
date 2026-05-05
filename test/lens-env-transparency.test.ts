@@ -19,9 +19,14 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
+// Import the registry's source-of-truth category list rather than
+// duplicating it. If a future PR adds a category to LENS_CATEGORIES
+// (e.g. "observability"), this test picks it up automatically. The
+// previous local hardcoded list could silently let a new-category
+// lens skip transparency validation.
+import { LENS_CATEGORIES } from "../src/lenses.js";
 
 const LENSES_ROOT = resolve(__dirname, "..", "lenses");
-const CATEGORIES = ["databases", "dev-tools", "saas", "infra", "other"];
 
 interface LensTargetEnv {
   [key: string]: string;
@@ -37,8 +42,11 @@ interface LensConfig {
 
 function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
   const out: Array<{ name: string; config: LensConfig }> = [];
-  for (const cat of CATEGORIES) {
+  for (const cat of LENS_CATEGORIES) {
     const catDir = join(LENSES_ROOT, cat);
+    // Skipping a missing category directory is fine: the registry lists
+    // every supported category, but we don't require every category to
+    // have at least one lens at any given time.
     let entries: string[];
     try {
       entries = readdirSync(catDir);
@@ -51,14 +59,25 @@ function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
       try {
         if (!statSync(lensDir).isDirectory()) continue;
       } catch {
-        continue;
+        // stat failure on a discovered entry is unusual and might hide a
+        // real filesystem-permissions or symlink issue. Surface it.
+        throw new Error(`Failed to stat ${lensDir} while loading lenses`);
       }
       const cfgPath = join(lensDir, "config.yaml");
+      // Fail fast on read failure: a lens directory exists but its
+      // config.yaml is unreadable (truncated, permission-denied, missing).
+      // Silent skip would produce a false-green on policy validation
+      // because the broken lens would simply not be checked.
       let raw: string;
       try {
         raw = readFileSync(cfgPath, "utf8");
-      } catch {
-        continue;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `Failed to read lens config at ${cfgPath} (lens ${cat}/${entry}): ${reason}. ` +
+            `If this lens directory is intentionally not yet shipped, remove the folder; ` +
+            `otherwise restore config.yaml so the transparency rule can validate it.`,
+        );
       }
       const parsed = loadYaml(raw) as LensConfig;
       out.push({ name: `${cat}/${entry}`, config: parsed });
