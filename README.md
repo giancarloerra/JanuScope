@@ -709,7 +709,7 @@ januscope lenses list                       # show every bundled lens
 januscope lenses show mongodb-official      # print its config + README
 ```
 
-### Bundled Lenses (12)
+### Bundled Lenses (15)
 
 One Lens per service, pointing at the official vendor MCP where one exists. Community alternatives are included only for technologies without a single vendor (Postgres, MySQL, SQLite). Every Lens is verified against a live `tools/list` on its target MCP.
 
