@@ -1,0 +1,79 @@
+# Oracle Database via Oracle SQLcl 25.4+ MCP Server — JanuScope Lens
+#
+# Tools observed in live tools/list (SQLcl 26.1, sqlcl-mcp-server 1.0.0,
+# 2026-05-05):
+#   READ : list-connections, schema-information, dbtools-get-tool-request
+#   STATE: connect, disconnect (switch active saved-connection — neutral)
+#   ARBITRARY-SQL: run-sql (single tool that accepts any SQL → guarded)
+#   ARBITRARY-CLI: run-sqlcl (executes SQLcl meta-commands incl HOST shell
+#                  escape, SCRIPT, SPOOL → blocked entirely)
+
+target:
+  command: sql
+  args:
+    - -mcp
+
+# Static-surface fingerprint. Turn on once you have committed to the
+# tool list above; re-run `januscope approve --config oracle-db-sqlcl`
+# whenever SQLcl ships a new MCP version.
+# firstRun: approve
+
+block:
+  # `run-sqlcl` lets the LLM execute SQLcl client commands. The
+  # SQLcl command surface includes HOST (shell escape), SCRIPT /
+  # START (run arbitrary file), SPOOL (write file), EDIT, and
+  # connection management primitives. None of those are appropriate
+  # for an LLM. Block the whole tool.
+  - run-sqlcl
+
+# `run-sql` accepts arbitrary SQL through the `sql` argument. The
+# tool name itself doesn't tell us read-vs-write, so we layer on the
+# keyword-level guard. JanuScope's sqlGuard rejects statements that
+# contain INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE
+# / GRANT / MERGE / RENAME / etc., letting SELECT and WITH-prefixed
+# CTEs through.
+sqlGuard:
+  tools:
+    - run-sql
+  sqlArg: sql
+  readOnly: true
+
+instructions: |
+  READ-ONLY Oracle Database. This database is wrapped behind JanuScope.
+  - Use `list-connections` to find available saved connections.
+  - Use `connect <name>` to attach to one (read-only role
+    enforced at the database level — see the lens README for setup).
+  - Use `schema-information` to discover tables / views / packages.
+  - Use `run-sql` for SELECT and read-only WITH queries; the proxy
+    rejects any SQL that contains a write keyword, even inside a
+    comment or string. Quote literals carefully.
+  - `run-sqlcl` is blocked. Do not try to run client meta-commands
+    (HOST, SCRIPT, SPOOL, etc.) through this proxy — they are
+    refused and the attempt is audited.
+
+redact:
+  rules:
+    # Common PII field-name patterns. Oracle returns query results as
+    # CSV via `run-sql`; these field rules catch JSON-shaped results
+    # from `schema-information` and any tool that returns objects.
+    - field: "**.email"
+    - field: "**.EMAIL"
+    - field: "**.password"
+    - field: "**.PASSWORD"
+    - field: "**.password_hash"
+    - field: "**.PASSWORD_HASH"
+    - field: "**.api_key"
+    - field: "**.API_KEY"
+    - field: "**.token"
+    - field: "**.TOKEN"
+    - field: "**.ssn"
+    - field: "**.SSN"
+    # Value-shape fallbacks for free-text columns and CSV result rows.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-oracle.jsonl"
+  logRawArgs: false

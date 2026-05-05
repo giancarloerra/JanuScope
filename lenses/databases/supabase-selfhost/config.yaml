@@ -1,0 +1,79 @@
+# Supabase self-host (CLI / Docker stack) — JanuScope Lens
+#
+# Wraps Supabase's local-development MCP server, served by `supabase
+# start` at http://127.0.0.1:54321/mcp. The Supabase self-host MCP
+# exposes a reduced surface vs the hosted version (no Account /
+# Branching / Functions / Storage admin tools, no OAuth).
+#
+# Tools observed in live tools/list (Supabase MCP 0.7.0 against
+# Supabase CLI stack, 2026-05-05):
+#   READ : search_docs, list_tables, list_extensions, list_migrations,
+#          get_logs, get_advisors, get_project_url, get_publishable_keys,
+#          generate_typescript_types
+#   ARBITRARY-SQL: execute_sql        (sqlGuard)
+#   WRITE-SHAPED:  apply_migration     (blocked)
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - mcp-remote
+    - "http://127.0.0.1:54321/mcp"
+    - "--allow-http"
+    - "--transport"
+    - "http-only"
+
+# firstRun: approve
+
+block:
+  # `apply_migration` runs raw SQL as a tracked migration (DDL /
+  # schema-changing). Block at the proxy.
+  - apply_migration
+
+# `execute_sql` is the catch-all SQL execution tool. It accepts any
+# Postgres SQL through `query`; layer keyword-level write rejection
+# on top of the block list.
+sqlGuard:
+  tools:
+    - execute_sql
+  sqlArg: query
+  readOnly: true
+
+instructions: |
+  READ-ONLY local Supabase. This proxy wraps the self-host MCP at
+  http://127.0.0.1:54321/mcp.
+  - Use `search_docs` for Supabase / Postgres reference questions.
+  - Use `list_tables` / `list_extensions` / `list_migrations` to
+    discover schema objects.
+  - Use `execute_sql` for read-only SELECT / WITH queries; the
+    proxy rejects statements containing INSERT / UPDATE / DELETE /
+    DROP / CREATE / ALTER / TRUNCATE / GRANT / etc.
+  - `apply_migration` is blocked outright. Migrations belong in the
+    `supabase` CLI, not in an LLM-driven session.
+  - `get_publishable_keys` returns CLIENT-SAFE keys only. The
+    server-side service-role key is never exposed by this MCP.
+
+redact:
+  rules:
+    # Common PII field paths in result objects (Supabase tools
+    # return JSON: list_tables yields column metadata, execute_sql
+    # yields rows, generate_typescript_types yields a schema snapshot).
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.token"
+    - field: "**.secret"
+    # Value-shape fallbacks for free-text columns and log lines.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    # JWT-shaped tokens (eyJ-prefix, three base64url parts) — common
+    # in get_logs output if the session captured request headers.
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b'
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-supabase.jsonl"
+  logRawArgs: false

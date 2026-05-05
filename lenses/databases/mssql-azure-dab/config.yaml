@@ -1,0 +1,71 @@
+# Microsoft SQL Server / Azure SQL via Data API builder (DAB) v1.7+ — JanuScope Lens
+#
+# Tools observed in live tools/list (DAB 1.7.93, 2026-05-05):
+#   READ : describe_entities, read_records, aggregate_records (when enabled)
+#   WRITE: create_record, update_record, delete_record, execute_entity
+#
+# Strategy: block all WRITE tools so the LLM can only describe + read.
+# Defence-in-depth on top of DAB's per-entity RBAC (which the operator
+# should ALSO restrict at the role level via "permissions" on each
+# entity in `dab-config.json`).
+
+target:
+  command: dab
+  args:
+    - start
+    - --mcp-stdio
+
+# Static-surface fingerprinting: turn on once you've authored
+# dab-config.json and confirmed the entity set is what you want.
+# `firstRun: approve` means a silent change to your DAB entity list
+# refuses startup until you re-run `januscope approve --config
+# mssql-azure-dab`.
+# firstRun: approve
+
+block:
+  # WRITE tools — disabled at the proxy layer regardless of DAB role.
+  - create_record
+  - update_record
+  - delete_record
+  # `execute_entity` runs stored-procedure entities. Treat as WRITE: a
+  # SP can do anything the underlying schema permits. If a specific
+  # read-only SP is genuinely safe, narrow the block list later.
+  - execute_entity
+
+instructions: |
+  READ-ONLY. This database is wrapped behind JanuScope.
+  - Use `describe_entities` first to discover what is exposed.
+  - Use `read_records` for queries (OData filter, orderby, paging).
+  - All write tools (create / update / delete / execute_entity) are
+    blocked at the proxy AND should also be denied at the DAB role
+    level via per-entity permissions in `dab-config.json`.
+  - The lens audits every tool call to ~/mcp-audit-mssql.jsonl.
+
+redact:
+  rules:
+    # Common PII field paths in result objects. DAB returns rows as
+    # JSON objects whose keys are entity field names. Lower-cased
+    # matches handle DAB's default field naming and operator-aliased
+    # variants both.
+    - field: "**.email"
+    - field: "**.Email"
+    - field: "**.password"
+    - field: "**.Password"
+    - field: "**.passwordHash"
+    - field: "**.password_hash"
+    - field: "**.apiKey"
+    - field: "**.api_key"
+    - field: "**.token"
+    - field: "**.Token"
+    - field: "**.ssn"
+    - field: "**.creditCard"
+    - field: "**.credit_card"
+    # Value-shape fallbacks for free-text columns that contain PII.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # naive PAN-shaped digit run
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-mssql.jsonl"
+  logRawArgs: false

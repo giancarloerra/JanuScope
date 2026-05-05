@@ -293,6 +293,90 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 </tr>
 
 <tr>
+<td>SQL Server / Azure SQL</td>
+<td><a href="https://github.com/Azure/data-api-builder">Azure/data-api-builder</a> v1.7+ MCP</td>
+<td>
+
+```json
+{
+  "command": "dab",
+  "args": ["start", "--mcp-stdio"],
+  "cwd": "/path/to/your/dab-project"
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "mssql-azure-dab"],
+  "cwd": "/path/to/your/dab-project"
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Oracle Database</td>
+<td><a href="https://docs.oracle.com/en/database/oracle/sql-developer-command-line/26.1/sqcug/using-oracle-sqlcl-mcp-server.html">Oracle SQLcl 25.4+ MCP</a></td>
+<td>
+
+```json
+{
+  "command": "sql",
+  "args": ["-mcp"]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "oracle-db-sqlcl"]
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Supabase (self-host)</td>
+<td><a href="https://github.com/supabase-community/supabase-mcp">Supabase CLI local MCP</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "mcp-remote",
+    "http://127.0.0.1:54321/mcp",
+    "--allow-http",
+    "--transport",
+    "http-only"
+  ]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "supabase-selfhost"]
+}
+```
+
+</td>
+</tr>
+
+<tr>
 <td>Filesystem</td>
 <td><a href="https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem">modelcontextprotocol/server-filesystem</a></td>
 <td>
@@ -549,14 +633,14 @@ Same six-overlay pattern applies to non-database MCPs, drop `dbSchema` and `sqlG
 
 Fair question, and the bundled Postgres lens does exactly that, as a baseline. JanuScope sits _on top of_ whatever read-only mode your MCP offers, because a single MCP-level flag only solves one of the three problems above:
 
-| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres blocks DML at the DB layer       | `audit`, every call as JSONL with SHA-256 args hash; compliance-ready without changing the MCP                                              |
-| (that's it)                               | `redact`, PII scrubbed before the LLM ever sees it, with field-path rules that reach into JSON-in-text envelopes                            |
-| (that's it)                               | `instructions`, policy text pushed into every tool description; reduces the social-engineering leak rate we measure in the benchmark        |
-| (that's it)                               | `dbSchema` pre-injection, 84% token reduction, cached across the session                                                                    |
-| (that's it)                               | `sqlGuard`, a proxy-layer backstop against bypasses the DB-level role can't catch (UDF-name fragments like `SELECT dropUsers()`, see below) |
-| Postgres only                             | Same six overlays apply to the other 11 bundled lenses (MongoDB, Redis, Stripe, GitHub, filesystem, Notion, Atlassian, Linear, …)           |
+| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres blocks DML at the DB layer       | `audit`, every call as JSONL with SHA-256 args hash; compliance-ready without changing the MCP                                                                            |
+| (that's it)                               | `redact`, PII scrubbed before the LLM ever sees it, with field-path rules that reach into JSON-in-text envelopes                                                          |
+| (that's it)                               | `instructions`, policy text pushed into every tool description; reduces the social-engineering leak rate we measure in the benchmark                                      |
+| (that's it)                               | `dbSchema` pre-injection, 84% token reduction, cached across the session                                                                                                  |
+| (that's it)                               | `sqlGuard`, a proxy-layer backstop against bypasses the DB-level role can't catch (UDF-name fragments like `SELECT dropUsers()`, see below)                               |
+| Postgres only                             | Same six overlays apply to the other 14 bundled lenses (MongoDB, MS SQL via DAB, Oracle SQLcl, Supabase, Redis, Stripe, GitHub, filesystem, Notion, Atlassian, Linear, …) |
 
 If you only need "don't write," a DB role or `--access-mode=restricted` is enough. If you also need audit, redaction, policy-in-description, schema injection, _and_ the same mental model across any MCPs, that's JanuScope.
 
@@ -637,6 +721,9 @@ One Lens per service, pointing at the official vendor MCP where one exists. Comm
 - [`clickhouse-official`](./lenses/databases/clickhouse-official/): [ClickHouse's official MCP](https://github.com/ClickHouse/mcp-clickhouse). Allowlist-mode sqlGuard on `run_query`; PII redaction; audit.
 - [`redis-official`](./lenses/databases/redis-official/): [`redis/mcp-redis`](https://github.com/redis/mcp-redis). Read-only Redis (47 tools, 23 mutations blocked); works against self-hosted, Redis Cloud, AWS ElastiCache, and Upstash via standard `rediss://` URIs; heavy regex coverage on returned values (session tokens, JWTs, bcrypt, cloud keys); rate-limits the heavy iteration tools.
 - [`sqlite-panasenco`](./lenses/databases/sqlite-panasenco/): [`panasenco/mcp-sqlite`](https://github.com/panasenco/mcp-sqlite). sqlGuard on `sqlite_execute` plus defensive write-verb globs for canned queries.
+- [`mssql-azure-dab`](./lenses/databases/mssql-azure-dab/): [Data API builder v1.7+ MCP](https://github.com/Azure/data-api-builder) for Azure SQL / SQL Server / SQLDW / Cosmos DB / PostgreSQL / MySQL. Blocks every write-shaped DML tool (`create_record`, `update_record`, `delete_record`, `execute_entity`); PII redaction; audit.
+- [`oracle-db-sqlcl`](./lenses/databases/oracle-db-sqlcl/): [Oracle SQLcl 25.4+ built-in MCP](https://docs.oracle.com/en/database/oracle/sql-developer-command-line/26.1/sqcug/using-oracle-sqlcl-mcp-server.html). Blocks `run-sqlcl` (SQLcl meta-commands incl HOST shell escape); sqlGuard on `run-sql` for keyword-level write rejection; PII redaction; audit.
+- [`supabase-selfhost`](./lenses/databases/supabase-selfhost/): [Supabase self-host MCP](https://github.com/supabase-community/supabase-mcp) via `mcp-remote` against the local CLI stack at `http://127.0.0.1:54321/mcp`. Blocks `apply_migration`; sqlGuard on `execute_sql`; PII redaction including JWT-shaped tokens; audit.
 
 **🔧 Developer tools**
 
