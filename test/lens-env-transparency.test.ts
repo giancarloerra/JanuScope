@@ -19,14 +19,31 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { load as loadYaml } from "js-yaml";
-// Import the registry's source-of-truth category list rather than
-// duplicating it. If a future PR adds a category to LENS_CATEGORIES
-// (e.g. "observability"), this test picks it up automatically. The
-// previous local hardcoded list could silently let a new-category
-// lens skip transparency validation.
-import { LENS_CATEGORIES } from "../src/lenses.js";
 
 const LENSES_ROOT = resolve(__dirname, "..", "lenses");
+
+/**
+ * Discover lens categories dynamically by reading subdirectories of
+ * `lenses/`. The registry's `LENS_CATEGORIES` constant in `src/lenses.ts`
+ * is the engine's allowlist; this test just walks every shipped category
+ * directory regardless of registry membership. If a future PR adds a
+ * category (e.g. `observability`), the transparency rule covers it
+ * automatically with no test edit. Filenames starting with `_` (such as
+ * `_template`) are skipped.
+ *
+ * We deliberately do NOT import from `src/lenses.js` here: the import
+ * graph is heavy (zod schemas, the full overlay config) and pulling it
+ * into the test loader noticeably slows the unrelated subprocess-based
+ * CLI tests in this repo (each tsx subprocess inherits the slower
+ * import chain). Reading the filesystem is one syscall and covers the
+ * "automatic coverage on new categories" goal just as well.
+ */
+function discoverCategories(): string[] {
+  return readdirSync(LENSES_ROOT, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith("."))
+    .map((e) => e.name)
+    .sort();
+}
 
 interface LensTargetEnv {
   [key: string]: string;
@@ -42,26 +59,23 @@ interface LensConfig {
 
 function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
   const out: Array<{ name: string; config: LensConfig }> = [];
-  for (const cat of LENS_CATEGORIES) {
+  for (const cat of discoverCategories()) {
     const catDir = join(LENSES_ROOT, cat);
-    // Skipping a missing category directory is fine: the registry lists
-    // every supported category, but we don't require every category to
-    // have at least one lens at any given time.
-    let entries: string[];
-    try {
-      entries = readdirSync(catDir);
-    } catch {
-      continue;
-    }
+    // After dynamic discovery `readdirSync(catDir)` should always succeed
+    // for the categories we found. A subsequent failure (race-deletion of
+    // a directory between two reads) is rare and worth surfacing rather
+    // than swallowing.
+    const entries = readdirSync(catDir);
     for (const entry of entries) {
       const lensDir = join(catDir, entry);
       if (entry === "_template") continue;
       try {
         if (!statSync(lensDir).isDirectory()) continue;
-      } catch {
+      } catch (err) {
         // stat failure on a discovered entry is unusual and might hide a
-        // real filesystem-permissions or symlink issue. Surface it.
-        throw new Error(`Failed to stat ${lensDir} while loading lenses`);
+        // real filesystem-permissions or symlink issue. Surface it
+        // (preserve the original error via `cause` so the chain is intact).
+        throw new Error(`Failed to stat ${lensDir} while loading lenses`, { cause: err });
       }
       const cfgPath = join(lensDir, "config.yaml");
       // Fail fast on read failure: a lens directory exists but its
@@ -77,6 +91,7 @@ function loadAllBundledLenses(): Array<{ name: string; config: LensConfig }> {
           `Failed to read lens config at ${cfgPath} (lens ${cat}/${entry}): ${reason}. ` +
             `If this lens directory is intentionally not yet shipped, remove the folder; ` +
             `otherwise restore config.yaml so the transparency rule can validate it.`,
+          { cause: err },
         );
       }
       const parsed = loadYaml(raw) as LensConfig;
