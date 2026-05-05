@@ -82,6 +82,7 @@ export { createToolSurfaceOverlay } from "./overlays/toolSurface.js";
 export type { ToolSurfaceOverlayOptions } from "./overlays/toolSurface.js";
 export { probeTarget } from "./probe.js";
 export type { ProbeOptions, ProbeResult } from "./probe.js";
+export { renderBootSummary, shouldPrintBootSummary } from "./boot-summary.js";
 export type {
   AuditEvent,
   AuditStartupEvent,
