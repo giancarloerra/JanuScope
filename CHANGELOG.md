@@ -4,6 +4,12 @@ All notable changes to JanuScope are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [0.4.2](https://github.com/giancarloerra/januscope/compare/v0.4.1...v0.4.2) (2026-05-06)
+
+### Bug Fixes
+
+* **lenses:** add neon-cloud, supabase-cloud, snowflake-labs, aurora-dsql, redshift ([180783a](https://github.com/giancarloerra/januscope/commit/180783a3465b7791e431e0e34d61dd76a791fb3e))
+
 ## [0.4.1](https://github.com/giancarloerra/januscope/compare/v0.4.0...v0.4.1) (2026-05-05)
 
 ### Bug Fixes
