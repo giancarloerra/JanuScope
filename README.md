@@ -19,7 +19,7 @@
 
 JanuScope **hides the dangerous tools**, **scrubs PII** out of returned values before the model reads them, **logs every call**, and **pre-injects your DB schema** so the model doesn't waste five calls discovering it. **Runs locally, no hosted gateway in the data path.**
 
-One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. There are **[15 bundled Lenses](#option-a-use-a-bundled-lens-fastest-drop-in)** covering **databases (Postgres, MySQL, MongoDB, ClickHouse, Redis, SQLite, Microsoft SQL Server / Azure SQL, Oracle, Supabase), SaaS APIs (Stripe, Notion, Atlassian, Linear), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** across a multi-question session on Postgres (median of 4 runs). **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
+One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. There are **[20 bundled Lenses](#option-a-use-a-bundled-lens-fastest-drop-in)** covering **databases (Postgres, MySQL, MongoDB, ClickHouse, Redis, SQLite, Microsoft SQL Server / Azure SQL, Oracle, Neon, Snowflake, Aurora DSQL, Redshift, Supabase self-host), SaaS APIs (Stripe, Notion, Atlassian, Linear, Supabase Cloud), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** across a multi-question session on Postgres (median of 4 runs). **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
 
 > 🧠 **Need codebase understanding together with MCP governance?** See our sibling project [**SocratiCode**](https://github.com/giancarloerra/socraticode): local-first codebase intelligence with semantic search, dependency graphs, symbol-level impact analysis.
 
@@ -377,6 +377,190 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 </tr>
 
 <tr>
+<td>Supabase (cloud)</td>
+<td><a href="https://github.com/supabase-community/supabase-mcp">Supabase hosted MCP (mcp.supabase.com)</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "mcp-remote",
+    "https://mcp.supabase.com/mcp?read_only=true",
+    "--header",
+    "Authorization:Bearer YOUR_SBP_TOKEN",
+    "--transport",
+    "http-only"
+  ]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "supabase-cloud"],
+  "env": {
+    "SUPABASE_ACCESS_TOKEN": "sbp_your_token_here"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Snowflake</td>
+<td><a href="https://github.com/Snowflake-Labs/mcp">Snowflake-Labs/mcp</a> (uvx)</td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": ["snowflake-labs-mcp", "--service-config-file", "/path/to/services.yaml"],
+  "env": {
+    "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
+    "SNOWFLAKE_USER": "your_user",
+    "SNOWFLAKE_PASSWORD": "<your_PAT>",
+    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "snowflake-labs"],
+  "env": {
+    "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
+    "SNOWFLAKE_USER": "your_user",
+    "SNOWFLAKE_PASSWORD": "<your_PAT>",
+    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
+    "SNOWFLAKE_MCP_CONFIG": "/path/to/services.yaml"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>AWS Aurora DSQL</td>
+<td><a href="https://github.com/awslabs/mcp/tree/main/src/aurora-dsql-mcp-server">awslabs.aurora-dsql-mcp-server</a> (uvx)</td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": [
+    "awslabs.aurora-dsql-mcp-server@latest",
+    "--cluster_endpoint",
+    "<id>.dsql.eu-west-2.on.aws",
+    "--region",
+    "eu-west-2",
+    "--database_user",
+    "admin"
+  ]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "aurora-dsql"],
+  "env": {
+    "DSQL_CLUSTER_ENDPOINT": "<id>.dsql.eu-west-2.on.aws",
+    "AWS_REGION": "eu-west-2",
+    "DSQL_DATABASE_USER": "admin",
+    "AWS_PROFILE": "default"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>AWS Redshift</td>
+<td><a href="https://github.com/awslabs/mcp/tree/main/src/redshift-mcp-server">awslabs.redshift-mcp-server</a> (uvx)</td>
+<td>
+
+```json
+{
+  "command": "uvx",
+  "args": ["awslabs.redshift-mcp-server@latest"],
+  "env": {
+    "AWS_REGION": "eu-west-2",
+    "AWS_PROFILE": "default"
+  }
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "redshift"],
+  "env": {
+    "AWS_REGION": "eu-west-2",
+    "AWS_PROFILE": "default"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
+<td>Neon (hosted Postgres)</td>
+<td><a href="https://github.com/neondatabase/mcp-server-neon">Neon hosted MCP (mcp.neon.tech)</a></td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "mcp-remote",
+    "https://mcp.neon.tech/mcp?readonly=true",
+    "--header",
+    "Authorization:Bearer YOUR_NAPI_TOKEN",
+    "--transport",
+    "http-only"
+  ]
+}
+```
+
+</td>
+<td>
+
+```json
+{
+  "command": "npx",
+  "args": ["-y", "januscope", "--config", "neon-cloud"],
+  "env": {
+    "NEON_API_KEY": "napi_your_token_here"
+  }
+}
+```
+
+</td>
+</tr>
+
+<tr>
 <td>Filesystem</td>
 <td><a href="https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem">modelcontextprotocol/server-filesystem</a></td>
 <td>
@@ -553,7 +737,9 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 
 > **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up. Or [contribute one yourself](./lenses/CONTRIBUTING.md): it's a single YAML file plus a short README.
 >
-> **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Three exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes it as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **Redis** (`REDIS_URL`), **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those three.
+> **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Two exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes the value as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those two.
+>
+> **Most lenses run via `npx`/`uvx` and need only Node.js 20+.** Three lenses wrap CLIs that need a one-time local install: `dab` for `mssql-azure-dab` (`dotnet tool install -g Microsoft.DataApiBuilder`), `sql` for `oracle-db-sqlcl` ([Oracle SQLcl 25.4+ download](https://www.oracle.com/database/sqldeveloper/technologies/sqlcl/download/)), and `docker` for `github-official`. Each per-lens README links the install step.
 >
 > **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README.
 
@@ -633,14 +819,14 @@ Same six-overlay pattern applies to non-database MCPs, drop `dbSchema` and `sqlG
 
 Fair question, and the bundled Postgres lens does exactly that, as a baseline. JanuScope sits _on top of_ whatever read-only mode your MCP offers, because a single MCP-level flag only solves one of the three problems above:
 
-| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres blocks DML at the DB layer       | `audit`, every call as JSONL with SHA-256 args hash; compliance-ready without changing the MCP                                                                            |
-| (that's it)                               | `redact`, PII scrubbed before the LLM ever sees it, with field-path rules that reach into JSON-in-text envelopes                                                          |
-| (that's it)                               | `instructions`, policy text pushed into every tool description; reduces the social-engineering leak rate we measure in the benchmark                                      |
-| (that's it)                               | `dbSchema` pre-injection, 84% token reduction, cached across the session                                                                                                  |
-| (that's it)                               | `sqlGuard`, a proxy-layer backstop against bypasses the DB-level role can't catch (UDF-name fragments like `SELECT dropUsers()`, see below)                               |
-| Postgres only                             | Same six overlays apply to the other 14 bundled lenses (MongoDB, MS SQL via DAB, Oracle SQLcl, Supabase, Redis, Stripe, GitHub, filesystem, Notion, Atlassian, Linear, …) |
+| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                                                                                                                                                        |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres blocks DML at the DB layer       | `audit`, every call as JSONL with SHA-256 args hash; compliance-ready without changing the MCP                                                                                                                                                                                    |
+| (that's it)                               | `redact`, PII scrubbed before the LLM ever sees it, with field-path rules that reach into JSON-in-text envelopes                                                                                                                                                                  |
+| (that's it)                               | `instructions`, policy text pushed into every tool description; reduces the social-engineering leak rate we measure in the benchmark                                                                                                                                              |
+| (that's it)                               | `dbSchema` pre-injection, 84% token reduction, cached across the session                                                                                                                                                                                                          |
+| (that's it)                               | `sqlGuard`, a proxy-layer backstop against bypasses the DB-level role can't catch (UDF-name fragments like `SELECT dropUsers()`, see below)                                                                                                                                       |
+| Postgres only                             | The same six overlays apply to all 20 bundled lenses (Postgres, MongoDB, MS SQL via DAB, Oracle SQLcl, Snowflake, Aurora DSQL, Redshift, Supabase self-host, Supabase cloud, Neon cloud, MySQL, Redis, ClickHouse, SQLite, Stripe, GitHub, filesystem, Notion, Atlassian, Linear) |
 
 If you only need "don't write," a DB role or `--access-mode=restricted` is enough. If you also need audit, redaction, policy-in-description, schema injection, _and_ the same mental model across any MCPs, that's JanuScope.
 
@@ -709,7 +895,7 @@ januscope lenses list                       # show every bundled lens
 januscope lenses show mongodb-official      # print its config + README
 ```
 
-### Bundled Lenses (15)
+### Bundled Lenses (20)
 
 One Lens per service, pointing at the official vendor MCP where one exists. Community alternatives are included only for technologies without a single vendor (Postgres, MySQL, SQLite). Every Lens is verified against a live `tools/list` on its target MCP.
 
@@ -724,6 +910,10 @@ One Lens per service, pointing at the official vendor MCP where one exists. Comm
 - [`mssql-azure-dab`](./lenses/databases/mssql-azure-dab/): [Data API builder v1.7+ MCP](https://github.com/Azure/data-api-builder) for Azure SQL / SQL Server / SQLDW / Cosmos DB / PostgreSQL / MySQL. Blocks every write-shaped DML tool (`create_record`, `update_record`, `delete_record`, `execute_entity`); PII redaction; audit.
 - [`oracle-db-sqlcl`](./lenses/databases/oracle-db-sqlcl/): [Oracle SQLcl 25.4+ built-in MCP](https://docs.oracle.com/en/database/oracle/sql-developer-command-line/26.1/sqcug/using-oracle-sqlcl-mcp-server.html). Blocks `run-sqlcl` (SQLcl meta-commands incl HOST shell escape); sqlGuard on `run-sql` for keyword-level write rejection; PII redaction; audit.
 - [`supabase-selfhost`](./lenses/databases/supabase-selfhost/): [Supabase self-host MCP](https://github.com/supabase-community/supabase-mcp) via `mcp-remote` against the local CLI stack at `http://127.0.0.1:54321/mcp`. Blocks `apply_migration`; sqlGuard on `execute_sql`; PII redaction including JWT-shaped tokens; audit.
+- [`neon-cloud`](./lenses/databases/neon-cloud/): [Neon hosted MCP](https://github.com/neondatabase/mcp-server-neon) via `mcp-remote` with API-key auth and server-side `?readonly=true`. Blocks `get_connection_string` (DSN credential leak); sqlGuard on `run_sql` and `run_sql_transaction`; PII redaction including DSN-shaped values; audit.
+- [`snowflake-labs`](./lenses/databases/snowflake-labs/): [Snowflake-Labs/mcp](https://github.com/Snowflake-Labs/mcp) via `uvx` with PAT auth. Blocks the generic DDL writers `create_object` / `drop_object` / `create_or_alter_object` (plus defensive globs); sqlGuard on `run_snowflake_query`; PII redaction including PAT/JWT-shaped tokens; audit. Includes a `services.example.yaml` for the MCP's required `--service-config-file`.
+- [`aurora-dsql`](./lenses/databases/aurora-dsql/): [awslabs.aurora-dsql-mcp-server](https://github.com/awslabs/mcp/tree/main/src/aurora-dsql-mcp-server) via `uvx` with AWS IAM auth. MCP runs in default read-only mode (no `--allow-writes`); sqlGuard layered on `readonly_query`; PII redaction including DSN-shaped values; audit.
+- [`redshift`](./lenses/databases/redshift/): [awslabs.redshift-mcp-server](https://github.com/awslabs/mcp/tree/main/src/redshift-mcp-server) via `uvx` with AWS IAM auth. Discovers both provisioned clusters and Serverless workgroups; sqlGuard on `execute_query`; PII redaction including JDBC Redshift / Postgres DSN shapes; audit. README includes the minimum IAM policy.
 
 **🔧 Developer tools**
 
@@ -736,6 +926,7 @@ One Lens per service, pointing at the official vendor MCP where one exists. Comm
 - [`notion-official`](./lenses/saas/notion-official/): [Notion's official hosted MCP](https://developers.notion.com/guides/mcp/get-started-with-mcp) via `mcp-remote`.
 - [`atlassian-official`](./lenses/saas/atlassian-official/): [Atlassian's official Rovo MCP](https://github.com/atlassian/atlassian-mcp-server) via `mcp-remote`. Jira, Confluence, Compass.
 - [`linear-remote`](./lenses/saas/linear-remote/): [Linear's official remote MCP](https://linear.app/docs/mcp) via `mcp-remote`.
+- [`supabase-cloud`](./lenses/saas/supabase-cloud/): [Supabase hosted MCP](https://github.com/supabase-community/supabase-mcp) at `mcp.supabase.com` via `mcp-remote` with PAT auth. Blocks every project / branch / migration / edge-function write (10 tools + defensive globs); sqlGuard on `execute_sql`; PII redaction including DSN and JWT shapes; audit. For the local-development MCP see `supabase-selfhost`.
 
 ### Contributing a lens
 

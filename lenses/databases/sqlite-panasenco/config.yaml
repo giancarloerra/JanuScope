@@ -33,7 +33,10 @@ target:
     # Optional: metadata file with canned queries
     # - "--metadata"
     # - "${SQLITE_METADATA_PATH}"
-  env: {}
+  # No env block. mcp-sqlite takes the SQLite path as a positional
+  # CLI argument with no env-var equivalent; ${SQLITE_DB_PATH} is the
+  # lens-introduced name for that positional. See lenses/CONTRIBUTING.md
+  # for the rule on `${VAR}` in target.args.
 
 # Data-sensitivity label — tags audit records and prepends a classification
 # banner to the instructions the LLM sees.

@@ -28,9 +28,12 @@ target:
     - "--from"
     - "redis-mcp-server@latest"
     - "redis-mcp-server"
-    - "--url"
-    - "${REDIS_URL}"
-  env: {}
+  # No env block and no `--url` CLI flag. `redis-mcp-server` reads
+  # `REDIS_URL` (and the discrete `REDIS_HOST` / `REDIS_PORT` /
+  # `REDIS_USERNAME` / `REDIS_PASSWORD` / `REDIS_SSL` family) directly
+  # from process env, so the user's MCP-client config env block
+  # inherits straight through. Lens transparency: never rename or
+  # relay operator-supplied env vars. See lenses/CONTRIBUTING.md.
 
 # Data-sensitivity label. Redis is a common home for session
 # tokens, JWTs, hot-cache PII, and rate-limit counters, so treat as
