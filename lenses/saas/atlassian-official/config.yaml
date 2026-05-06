@@ -31,7 +31,9 @@ target:
     - "-y"
     - "mcp-remote"
     - "https://mcp.atlassian.com/v1/mcp"
-  env: {}
+  # No env block. mcp-remote handles OAuth interactively on first
+  # launch; no operator-supplied env vars are required at the lens
+  # level. See lenses/CONTRIBUTING.md for the transparency rule.
 
 # Data-sensitivity label — tags audit records and prepends a classification
 # banner to the instructions the LLM sees.

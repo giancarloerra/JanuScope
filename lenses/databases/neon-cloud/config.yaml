@@ -1,0 +1,92 @@
+# Neon (hosted Postgres) — JanuScope Lens
+#
+# Wraps Neon's hosted MCP server at https://mcp.neon.tech/mcp via
+# `mcp-remote` with API-key auth. The Neon MCP itself supports a
+# server-side `?readonly=true` flag which restricts the upstream tool
+# surface; this lens always sets that flag and additionally layers
+# proxy-side block / sqlGuard / redact / audit.
+#
+# Tools observed in live tools/list (mcp-server-neon 1.0.0,
+# readonly=true, 2026-05-06):
+#   READ : list_projects, list_organizations, list_shared_projects,
+#          describe_project, describe_branch, describe_table_schema,
+#          get_database_tables, list_branch_computes, list_slow_queries,
+#          compare_database_schema, search, fetch, list_docs_resources,
+#          get_doc_resource
+#   ARBITRARY-SQL: run_sql, run_sql_transaction (sqlGuard)
+#   CREDENTIAL-LEAK: get_connection_string (blocked — returns the
+#                    raw Postgres DSN incl password, which the LLM has
+#                    no business seeing)
+#   READ-ANALYSIS: explain_sql_statement (read-shaped)
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mcp-remote"
+    - "https://mcp.neon.tech/mcp?readonly=true"
+    - "--header"
+    - "Authorization:Bearer ${NEON_API_KEY}"
+    - "--transport"
+    - "http-only"
+
+# firstRun: approve
+
+block:
+  # `get_connection_string` returns the live database DSN
+  # (postgresql://user:password@host/db). That's a credential leak
+  # to the LLM and should never be exposed regardless of read-only
+  # mode at the database level.
+  - get_connection_string
+
+# Both run_sql and run_sql_transaction execute caller-supplied SQL.
+# Neon's server-side readonly enforcement is layer 1; sqlGuard is
+# layer 2 (defence in depth, in case the readonly URL flag was
+# stripped or a future MCP version reinterprets it).
+sqlGuard:
+  tools:
+    - run_sql
+    - run_sql_transaction
+  sqlArg: sql
+  readOnly: true
+
+instructions: |
+  READ-ONLY Neon (hosted Postgres). This proxy wraps mcp.neon.tech
+  with the server-side `readonly=true` flag, plus proxy-layer
+  sqlGuard on run_sql / run_sql_transaction.
+  - Use `list_projects` / `describe_project` / `describe_branch` /
+    `get_database_tables` / `describe_table_schema` for orientation.
+  - Use `run_sql` for SELECT / WITH-prefixed queries; the proxy
+    rejects any statement containing INSERT / UPDATE / DELETE /
+    DROP / CREATE / ALTER / TRUNCATE / GRANT / etc.
+  - `get_connection_string` is BLOCKED. Do not request the database
+    DSN; the credentials inside it are not sanctioned for the LLM.
+  - `compare_database_schema` and `list_slow_queries` are useful
+    for migration planning and perf analysis without touching
+    production data.
+
+redact:
+  rules:
+    # PII field paths in JSON tool results (Neon returns rows as
+    # JSON objects from run_sql, table descriptions from describe_*).
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.token"
+    - field: "**.secret"
+    # Connection-string-shaped values that might leak through error
+    # messages or other tool outputs even though get_connection_string
+    # is blocked. The pattern matches `postgres://...:...@...` shapes.
+    - regex: "\\bpostgres(ql)?://[^\\s]*?:[^\\s@]+@[^\\s/]+"
+    # Value-shape fallbacks for free-text columns and log lines.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b' # JWT
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-neon.jsonl"
+  logRawArgs: false

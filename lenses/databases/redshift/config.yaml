@@ -1,0 +1,68 @@
+# AWS Redshift — JanuScope Lens
+#
+# Wraps awslabs.redshift-mcp-server (uvx). The MCP itself runs in
+# READ-ONLY mode (per its own description; READ-WRITE support is
+# planned for a future release). The lens layers sqlGuard on top
+# as defence in depth, plus PII redaction and audit.
+#
+# Tools observed in live tools/list (awslabs.redshift-mcp-server
+# 1.27.0, 2026-05-06):
+#   READ : list_clusters, list_databases, list_schemas,
+#          list_tables, list_columns
+#   ARBITRARY-SQL: execute_query (sql string) → sqlGuard
+
+target:
+  command: uvx
+  args:
+    - "awslabs.redshift-mcp-server@latest"
+
+# firstRun: approve
+
+# `execute_query` accepts SQL through the `sql` argument. The MCP
+# is server-side read-only today, but layer keyword-level write
+# rejection at the proxy too (defence in depth, and forward-
+# compatible with the MCP's planned read-write mode — when that
+# ships, JanuScope still says no without the user reconfiguring).
+sqlGuard:
+  tools:
+    - execute_query
+  sqlArg: sql
+  readOnly: true
+
+instructions: |
+  READ-ONLY Redshift. The proxy wraps the AWS Labs Redshift MCP
+  which runs in read-only mode by default.
+  - `list_clusters` to discover Redshift provisioned clusters and
+    Serverless workgroups your IAM principal has access to.
+  - `list_databases` / `list_schemas` / `list_tables` /
+    `list_columns` for hierarchical schema discovery.
+  - `execute_query` for SELECT / WITH queries; the proxy rejects
+    any statement containing INSERT / UPDATE / DELETE / DROP /
+    CREATE / ALTER / TRUNCATE / GRANT / etc.
+  Operations against multiple clusters in one session are
+  supported by passing different `cluster_identifier` values to
+  the tools.
+
+redact:
+  rules:
+    # PII field paths in Redshift result rows.
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.token"
+    - field: "**.secret"
+    # Connection-string-shaped values that may leak through error
+    # messages or schema introspection.
+    - regex: "\\b(postgres|jdbc:redshift|jdbc:postgresql)://[^\\s]*?:[^\\s@]+@[^\\s/]+"
+    # Value-shape fallbacks.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b' # JWT
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-redshift.jsonl"
+  logRawArgs: false

@@ -1,0 +1,104 @@
+# Snowflake (via Snowflake-Labs MCP) — JanuScope Lens
+#
+# Wraps Snowflake's official MCP server (uvx snowflake-labs-mcp) which
+# speaks stdio. Authentication uses Snowflake Programmatic Access Tokens
+# (PATs) passed through SNOWFLAKE_PASSWORD per the MCP's documented
+# convention (the deprecated --pat flag is no longer used).
+#
+# Tools observed in live tools/list (Snowflake MCP Server 2.14.7,
+# 2026-05-06):
+#   READ : list_objects, describe_object, list_semantic_views,
+#          describe_semantic_view, show_semantic_dimensions,
+#          show_semantic_metrics, get_semantic_view_ddl,
+#          write_semantic_view_query_tool (returns a query string),
+#          query_semantic_view
+#   ARBITRARY-SQL: run_snowflake_query
+#                  ("DML and DDL queries are supported" per its own
+#                   description → wrap in sqlGuard)
+#   GENERIC-DDL-WRITE: create_object, drop_object,
+#                      create_or_alter_object → blocked outright
+
+target:
+  command: uvx
+  args:
+    - snowflake-labs-mcp
+    - --service-config-file
+    - "${SNOWFLAKE_MCP_CONFIG}"
+  # All connection parameters (account / user / password / role /
+  # warehouse) are passed via the upstream MCP's documented env-var
+  # contract: SNOWFLAKE_ACCOUNT / SNOWFLAKE_USER / SNOWFLAKE_PASSWORD
+  # / SNOWFLAKE_ROLE / SNOWFLAKE_WAREHOUSE. Doing this via env (not
+  # CLI args) keeps the PAT out of `ps` listings. JanuScope inherits
+  # whatever the user sets in their MCP-client config env block — no
+  # rename, no relay through target.env.
+
+# firstRun: approve
+
+block:
+  # Generic DDL writers — `create_object` / `drop_object` /
+  # `create_or_alter_object` accept any object type (database,
+  # schema, table, view, stream, task, …). Block all three at the
+  # proxy layer; the LLM has no business mutating schema.
+  - create_object
+  - drop_object
+  - create_or_alter_object
+  # Defensive future-proofing for any new write-shaped object tools
+  # that follow the existing naming convention.
+  - "create_*"
+  - "drop_*"
+  - "delete_*"
+  - "alter_*"
+
+# `run_snowflake_query` is the catch-all SQL execution tool. Its own
+# description states "DML and DDL queries are supported", so layer
+# keyword-level write rejection at the proxy. Defence in depth on top
+# of the `sql_statement_permissions` policy in the upstream services
+# YAML (which can be set to forbid Insert/Update/Delete/Drop/Create
+# at the MCP layer too — see this lens's README for a sample).
+sqlGuard:
+  tools:
+    - run_snowflake_query
+  sqlArg: statement
+  readOnly: true
+
+instructions: |
+  READ-ONLY Snowflake. This proxy wraps the Snowflake-Labs MCP plus a
+  proxy-side block list and sqlGuard.
+  - Use `list_objects` / `describe_object` for schema discovery
+    (databases, schemas, tables, views, stages, …).
+  - Use `list_semantic_views` / `describe_semantic_view` /
+    `show_semantic_dimensions` / `show_semantic_metrics` /
+    `get_semantic_view_ddl` for semantic-view introspection.
+  - Use `query_semantic_view` to query a semantic view by name with
+    DIMENSIONS / METRICS arguments — the canonical analytical path.
+  - Use `run_snowflake_query` for SELECT and WITH queries; the proxy
+    rejects any statement containing INSERT / UPDATE / DELETE / DROP
+    / CREATE / ALTER / TRUNCATE / GRANT / etc.
+  - `create_object` / `drop_object` / `create_or_alter_object` are
+    blocked outright. The LLM is not authorised to mutate Snowflake
+    schema through this lens.
+
+redact:
+  rules:
+    # PII field paths in JSON tool results. Snowflake returns rows
+    # in a structured JSON shape via run_snowflake_query.
+    - field: "**.email"
+    - field: "**.EMAIL"
+    - field: "**.password"
+    - field: "**.PASSWORD"
+    - field: "**.api_key"
+    - field: "**.API_KEY"
+    - field: "**.token"
+    - field: "**.TOKEN"
+    - field: "**.secret"
+    - field: "**.SECRET"
+    # Value-shape fallbacks for free-text columns and result rows.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b' # JWT (incl PAT shape)
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-snowflake.jsonl"
+  logRawArgs: false

@@ -1,0 +1,126 @@
+# Supabase Cloud (hosted) — JanuScope Lens
+#
+# Wraps Supabase's hosted MCP server at https://mcp.supabase.com/mcp
+# via `mcp-remote`. Uses Personal Access Token auth in the
+# `Authorization: Bearer` header — non-interactive, suitable for
+# MCP-client configs / CI.
+#
+# This is the FULL hosted surface (~30 tools spanning Account /
+# Database / Debugging / Edge Functions / Branching). For the
+# reduced local-development surface, see the `supabase-selfhost`
+# lens which wraps the CLI's local stack.
+#
+# Tools observed in live tools/list (supabase 0.8.1, ?read_only=true,
+# 2026-05-06):
+#   ACCOUNT (read): search_docs, list_organizations, get_organization,
+#                   list_projects, get_project, get_cost, confirm_cost
+#   ACCOUNT (write→blocked): create_project, pause_project, restore_project
+#   DATABASE (read): list_tables, list_extensions, list_migrations,
+#                    get_logs, get_advisors, get_project_url,
+#                    get_publishable_keys, generate_typescript_types
+#   DATABASE (arbitrary SQL→sqlGuard): execute_sql
+#   DATABASE (DDL→blocked): apply_migration
+#   EDGE FUNCTIONS (read): list_edge_functions, get_edge_function
+#   EDGE FUNCTIONS (deploy→blocked): deploy_edge_function
+#   BRANCHING (read): list_branches
+#   BRANCHING (write→blocked): create_branch, delete_branch,
+#                              merge_branch, reset_branch, rebase_branch
+
+target:
+  command: npx
+  args:
+    - "-y"
+    - "mcp-remote"
+    - "https://mcp.supabase.com/mcp?read_only=true"
+    - "--header"
+    - "Authorization:Bearer ${SUPABASE_ACCESS_TOKEN}"
+    - "--transport"
+    - "http-only"
+
+classification: internal
+
+# firstRun: approve
+
+block:
+  # Project lifecycle writes — even in "read only mode" the MCP
+  # surfaces these tools; explicit proxy-side block hides them
+  # from the LLM.
+  - create_project
+  - pause_project
+  - restore_project
+  # DDL / migration write
+  - apply_migration
+  # Code-deployment write — deploys an Edge Function from caller-
+  # supplied source. Treat as the most dangerous write tool: it
+  # publishes runnable code into the Supabase project.
+  - deploy_edge_function
+  # Branching writes
+  - create_branch
+  - delete_branch
+  - merge_branch
+  - reset_branch
+  - rebase_branch
+  # Defensive future-proofing: any new project / branch / function /
+  # storage WRITE that follows the existing naming convention.
+  - "create_*"
+  - "delete_*"
+  - "update_*"
+  - "deploy_*"
+
+# `execute_sql` is the catch-all SQL execution tool. Even with
+# `?read_only=true` enforcing read-only at the database role, layer
+# keyword-level guard at the proxy as defence in depth.
+sqlGuard:
+  tools:
+    - execute_sql
+  sqlArg: query
+  readOnly: true
+
+instructions: |
+  READ-ONLY hosted Supabase. This proxy wraps mcp.supabase.com with
+  the `?read_only=true` flag plus proxy-layer block + sqlGuard.
+
+  Read paths the LLM should use:
+  - `list_organizations` / `list_projects` / `get_project` for orientation.
+  - `list_tables` / `list_extensions` / `list_migrations` for schema
+    discovery; `generate_typescript_types` for a typed schema snapshot.
+  - `execute_sql` for SELECT / WITH queries; the proxy rejects any
+    statement containing INSERT / UPDATE / DELETE / DROP / CREATE /
+    ALTER / TRUNCATE / GRANT / etc.
+  - `get_logs` / `get_advisors` for diagnostic introspection.
+  - `list_branches` (read), `list_edge_functions` / `get_edge_function`
+    (read).
+
+  Blocked tools (do not attempt; the proxy refuses the call and
+  the attempt is audited):
+  - `create_project` / `pause_project` / `restore_project`
+  - `apply_migration` (DDL)
+  - `deploy_edge_function` (code publish)
+  - `create_branch` / `delete_branch` / `merge_branch` /
+    `reset_branch` / `rebase_branch`
+
+  `get_publishable_keys` returns CLIENT-SAFE keys only. The
+  server-side `service_role` key is never exposed by this MCP.
+
+redact:
+  rules:
+    # PII field paths in JSON tool results.
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.token"
+    - field: "**.secret"
+    # Connection-string-shaped values (Postgres DSN).
+    - regex: "\\bpostgres(ql)?://[^\\s]*?:[^\\s@]+@[^\\s/]+"
+    # Value-shape fallbacks.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b' # JWT
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-supabase-cloud.jsonl"
+  logRawArgs: false

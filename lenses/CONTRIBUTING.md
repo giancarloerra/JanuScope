@@ -119,11 +119,13 @@ Both patterns live entirely in the `instructions` field, which is **deliberately
 
 A maintainer will review (see [First-PR review policy](#first-pr-review-policy) below for newcomers).
 
-## Lens transparency rule (read this before writing `target.env`)
+## Lens transparency rule (read before touching env vars or `target.args`)
 
-A lens must be **as transparent as possible** about how the wrapped MCP is configured. Concretely, that means:
+A lens must be **as transparent as possible** about how the wrapped MCP is configured. The rule applies to `target.env`, to `${VAR}` substitutions inside `target.args`, and to whatever names the lens README tells the user to set. Concretely:
 
-**Operator-supplied env vars are never renamed by the lens.** The user sets the same env-var names that the upstream MCP itself reads. If the upstream wants `DATABASE_URI`, the user sets `DATABASE_URI`. The lens does not "translate" `${DATABASE_URL}` → `DATABASE_URI` even when one feels more conventional than the other. Renaming creates surprise: the user copies their existing MCP-client config, JanuScope silently expects different names, and either nothing connects or (worse) the lens substitution overwrites the user's working env var with empty string.
+**Operator-supplied env vars are never renamed by the lens.** The user sets the same env-var names that the upstream MCP itself reads. If the upstream wants `DATABASE_URI`, the user sets `DATABASE_URI`. The lens does not "translate" `${DATABASE_URL}` → `DATABASE_URI` even when one feels more conventional. This applies whether the rename happens via `target.env: { DATABASE_URI: "${DATABASE_URL}" }` (re-declaration) OR via `${DATABASE_URL}` in `target.args` (substitution-time rename). Renaming creates surprise: the user copies their existing MCP-client config, JanuScope silently expects different names, and either nothing connects or (worse) the lens substitution overwrites the user's working env var with empty string.
+
+**`${VAR}` substitutions in `target.args` follow the same rule.** When you reference `${SOME_NAME}` inside `target.args`, `SOME_NAME` should be the upstream tool's documented env-var name. If the upstream MCP itself accepts the value via env (e.g. `SNOWFLAKE_PASSWORD`, `DATABASE_URI`, `MYSQL_HOST`), prefer letting it flow through env propagation and skip the substitution entirely. Use a `${VAR}` substitution only when the upstream tool requires a CLI argument with no env-var equivalent — and even then, the variable name should match the upstream's published convention. **For remote HTTP MCPs** that authenticate via headers rather than env vars, follow the upstream ecosystem's standard env-var name (e.g. Supabase ecosystem uses `SUPABASE_ACCESS_TOKEN`, not a fresh `SUPABASE_PAT`).
 
 **Operator-supplied env vars are not re-declared in `target.env`.** For direct child-process targets, whatever the user sets in their MCP-client config's `"env"` block is inherited by JanuScope and then by the spawned target through `child_process.spawn` env merging. A lens that writes `target.env: { FOO: "${FOO}" }` is at best redundant and at worst breaks the inherited value when the substitution source isn't set. **Containerised targets are the exception**: if the lens runs `docker` or `podman`, the spawned `docker` process inherits the env, but the container it creates does NOT. You still need explicit `-e VAR` passthrough flags inside `target.args` to move selected env vars into the container. See `lenses/dev-tools/github-official/config.yaml` for the canonical pattern (`-e GITHUB_PERSONAL_ACCESS_TOKEN`, no `=`, which tells docker to forward the var from the calling environment).
 
@@ -134,6 +136,8 @@ A lens must be **as transparent as possible** about how the wrapped MCP is confi
 If your lens has no policy-value env hardcodes, omit the `target.env` block entirely.
 
 > **Worked example — Postgres.** `crystaldba/postgres-mcp` reads `DATABASE_URI`. The bundled `postgres-crystaldba` lens does **not** set `target.env: { DATABASE_URI: "${DATABASE_URL}" }` — that would be a rename. The lens's `target.env` is omitted; the user sets `DATABASE_URI` in their client config and it inherits through.
+
+> **Worked example — Supabase Cloud.** Supabase's hosted MCP at `mcp.supabase.com/mcp` authenticates via an `Authorization: Bearer <token>` header rather than reading an env var. The Supabase ecosystem's standard env-var name for that token is `SUPABASE_ACCESS_TOKEN` (used by the Supabase CLI and management-API docs), so the lens uses `${SUPABASE_ACCESS_TOKEN}` in its `target.args` `--header` flag — not a freshly invented `SUPABASE_PAT`. The user sets `SUPABASE_ACCESS_TOKEN` exactly the way they would for any other Supabase tool.
 
 ## File structure
 

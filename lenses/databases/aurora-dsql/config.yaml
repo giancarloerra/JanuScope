@@ -1,0 +1,82 @@
+# AWS Aurora DSQL — JanuScope Lens
+#
+# Wraps awslabs.aurora-dsql-mcp-server (uvx). The MCP itself is
+# read-only by default (without `--allow-writes`); this lens
+# enforces that posture at the proxy layer too as defence in depth,
+# and adds sqlGuard on the single-string SQL tool plus PII redaction
+# and audit.
+#
+# Tools observed in live tools/list (awslabs-aurora-dsql-mcp-server
+# 1.27.0, READ-ONLY mode, 2026-05-06):
+#   ARBITRARY-SQL: readonly_query (sql string)        → sqlGuard
+#   ARBITRARY-SQL: transact      (sql_list array)     → MCP-side
+#                                                       read-only
+#                                                       enforcement
+#                                                       (no
+#                                                       --allow-writes)
+#   READ : get_schema, dsql_search_documentation,
+#          dsql_read_documentation, dsql_recommend
+
+target:
+  command: uvx
+  args:
+    - "awslabs.aurora-dsql-mcp-server@latest"
+    - "--cluster_endpoint"
+    - "${DSQL_CLUSTER_ENDPOINT}"
+    - "--region"
+    - "${AWS_REGION}"
+    - "--database_user"
+    - "${DSQL_DATABASE_USER}"
+    # IMPORTANT: do NOT add --allow-writes. The MCP defaults to
+    # read-only and this lens depends on that default to stay safe.
+
+# firstRun: approve
+
+# `readonly_query` accepts arbitrary SQL through the `sql` argument.
+# Even though the MCP enforces read-only at execution time, layer
+# keyword-level write rejection at the proxy. Defence in depth.
+sqlGuard:
+  tools:
+    - readonly_query
+  sqlArg: sql
+  readOnly: true
+
+instructions: |
+  READ-ONLY Aurora DSQL. The proxy wraps the MCP in its default
+  read-only mode (`--allow-writes` is intentionally NOT passed).
+  - `readonly_query` for SELECT / WITH queries; sqlGuard rejects
+    any statement containing INSERT / UPDATE / DELETE / DROP /
+    CREATE / ALTER / TRUNCATE / GRANT / etc.
+  - `transact` for multi-statement read transactions when you need
+    point-in-time consistency across several SELECTs; the MCP
+    rejects mutations in read-only mode.
+  - `get_schema <table>` to inspect schema before querying.
+  - `dsql_search_documentation` / `dsql_read_documentation` /
+    `dsql_recommend` for DSQL reference and best-practice guidance.
+  Do not request --allow-writes; the deployment posture is read-only
+  by design and any write attempt is refused at multiple layers.
+
+redact:
+  rules:
+    # PII field paths in JSON tool results (DSQL is Postgres-
+    # compatible so identifier folding is the same).
+    - field: "**.email"
+    - field: "**.password"
+    - field: "**.password_hash"
+    - field: "**.api_key"
+    - field: "**.apiKey"
+    - field: "**.token"
+    - field: "**.secret"
+    # Connection-string-shaped values that may appear in error
+    # messages or schema introspection output.
+    - regex: "\\bpostgres(ql)?://[^\\s]*?:[^\\s@]+@[^\\s/]+"
+    # Value-shape fallbacks.
+    - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
+    - regex: '\b(?:\d[ -]*?){13,16}\b' # PAN-shaped digit run
+    - regex: '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b' # JWT
+  replacement: "[REDACTED]"
+  applyTo: text
+
+audit:
+  sink: "~/mcp-audit-aurora-dsql.jsonl"
+  logRawArgs: false
