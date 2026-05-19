@@ -4,6 +4,8 @@ All notable changes to JanuScope are documented here.
 This project uses [Conventional Commits](https://www.conventionalcommits.org/) and [Semantic Versioning](https://semver.org/).
 
 
+## [0.4.3](https://github.com/giancarloerra/januscope/compare/v0.4.2...v0.4.3) (2026-05-19)
+
 ## [0.4.2](https://github.com/giancarloerra/januscope/compare/v0.4.1...v0.4.2) (2026-05-06)
 
 ### Bug Fixes
