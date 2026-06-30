@@ -58,12 +58,7 @@ import type { OverlayConfig } from "./config.js";
 
 /** Names of components we hash — mirrors FingerprintComponents keys. */
 export type FingerprintComponentName =
-  | "target"
-  | "block"
-  | "sqlGuard"
-  | "rateLimit"
-  | "redact"
-  | "classification";
+  "target" | "block" | "sqlGuard" | "rateLimit" | "redact" | "classification";
 
 /** Result of checking an approved.json entry against the current config. */
 export type QuarantineCheckResult =

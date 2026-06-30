@@ -11,10 +11,14 @@
 #   snyk code test            # source-side analysis
 #   snyk test                 # dependency-side analysis (covered by ci.yml)
 #
-# Last re-evaluation: 2026-05-05 against `snyk code test` on
-# fix/boot-summary @ dcae34b. Snyk reports 7 findings; all 7 are
-# documented below. None are introduced by the boot-summary patch
-# (verified by stash + re-run on main: same 7 reports).
+# Last re-evaluation: 2026-06-29 against `snyk code test` on main,
+# after the prettier 3.9 reformat of src/quarantine.ts. Snyk reports
+# the same 7 findings; all 7 are documented below and none are
+# introduced by the reformat (it only collapsed a union type onto one
+# line, with no behavioural change). The reformat shifted lines below
+# it in src/quarantine.ts up by 5, so the quarantine.ts reference below
+# was bumped 491 → 486. src/cli.ts was untouched; its line numbers are
+# unchanged.
 
 version: v1.25.0
 
@@ -82,7 +86,7 @@ exclude:
 #   - src/overlays/audit.ts:484 builds the canonical object with
 #     `Object.create(null) as Record<string, unknown>` — no
 #     Object.prototype to pollute.
-#   - src/quarantine.ts:491 same treatment for sortKeysRecursive.
+#   - src/quarantine.ts:486 same treatment for sortKeysRecursive.
 #   - Both helpers explicitly skip `__proto__` / `constructor` /
 #     `prototype` keys when copying.
 #
