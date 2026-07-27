@@ -78,7 +78,7 @@
     "zod": "^3.25.76"
   },
   "optionalDependencies": {
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.1",
     "mysql2": "^3.22.3",
     "pg": "^8.13.0"
   },
@@ -91,7 +91,7 @@
     "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.2",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.1",
     "eslint": "^10.3.0",
     "prettier": "^3.3.3",
     "release-it": "^20.0.1",
