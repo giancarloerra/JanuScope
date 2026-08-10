@@ -4,6 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+      # Without `day`, Dependabot defaults to Monday. Friday morning keeps
+      # dependency review off the start of the week.
+      day: "friday"
+      time: "07:00"
+      timezone: "Europe/London"
     open-pull-requests-limit: 5
     labels:
       - dependencies
@@ -29,6 +34,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+      # Without `day`, Dependabot defaults to Monday. Friday morning keeps
+      # dependency review off the start of the week.
+      day: "friday"
+      time: "07:00"
+      timezone: "Europe/London"
     open-pull-requests-limit: 3
     labels:
       - dependencies
