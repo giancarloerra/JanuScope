@@ -142,20 +142,32 @@ function scrubText(text: string, rules: CompiledRules, replacement: string): str
   if (rules.fieldPatterns.length > 0) {
     const json = tryParseJson(text);
     if (json) {
-      applyFieldRules(json.parsed as Record<string, unknown>, rules.fieldPatterns, replacement);
-      text = json.pretty ? JSON.stringify(json.parsed, null, 2) : JSON.stringify(json.parsed);
+      const fieldsChanged = applyFieldRules(
+        json.parsed as Record<string, unknown>,
+        rules.fieldPatterns,
+        replacement,
+      );
+      const normalized = json.pretty
+        ? JSON.stringify(json.parsed, null, 2)
+        : JSON.stringify(json.parsed);
+      // Retain regex matching against decoded JSON escapes before deciding
+      // that the original text can be forwarded without normalization.
+      const redacted = applyRegexList(normalized, rules.regexes, replacement);
+      if (fieldsChanged || redacted !== normalized) return redacted;
     } else {
       const embedded = extractEmbeddedJsonBlock(text);
       if (embedded) {
-        applyFieldRules(
+        const fieldsChanged = applyFieldRules(
           embedded.parsed as Record<string, unknown>,
           rules.fieldPatterns,
           replacement,
         );
-        const redacted = embedded.pretty
+        const normalizedJson = embedded.pretty
           ? JSON.stringify(embedded.parsed, null, 2)
           : JSON.stringify(embedded.parsed);
-        text = embedded.before + redacted + embedded.after;
+        const normalized = embedded.before + normalizedJson + embedded.after;
+        const redacted = applyRegexList(normalized, rules.regexes, replacement);
+        if (fieldsChanged || redacted !== normalized) return redacted;
       } else {
         const python = redactPythonLiteral(text, (root) =>
           applyFieldRules(root, rules.fieldPatterns, replacement),
@@ -379,14 +391,17 @@ function compileFieldPath(path: string): FieldSegment[] {
   return segments;
 }
 
+/** Apply every field rule and report whether any value changed. */
 function applyFieldRules(
   root: Record<string, unknown>,
   patterns: FieldPattern[],
   replacement: string,
-): void {
+): boolean {
+  let changed = false;
   for (const pattern of patterns) {
-    walkAndRedact(root, pattern.segments, 0, replacement);
+    changed = walkAndRedact(root, pattern.segments, 0, replacement) || changed;
   }
+  return changed;
 }
 
 function walkAndRedact(
@@ -394,29 +409,30 @@ function walkAndRedact(
   segments: FieldSegment[],
   index: number,
   replacement: string,
-): void {
-  if (index >= segments.length) return;
+): boolean {
+  if (index >= segments.length) return false;
   const segment = segments[index];
-  if (!segment) return;
+  if (!segment) return false;
+  let changed = false;
 
   if (segment.kind === "deep") {
     // Deep wildcard: match at current depth, or descend further.
-    walkAndRedact(node, segments, index + 1, replacement);
+    changed = walkAndRedact(node, segments, index + 1, replacement);
     if (node && typeof node === "object") {
       if (Array.isArray(node)) {
         for (const child of node) {
-          walkAndRedact(child, segments, index, replacement);
+          changed = walkAndRedact(child, segments, index, replacement) || changed;
         }
       } else {
         for (const v of Object.values(node as Record<string, unknown>)) {
-          walkAndRedact(v, segments, index, replacement);
+          changed = walkAndRedact(v, segments, index, replacement) || changed;
         }
       }
     }
-    return;
+    return changed;
   }
 
-  if (!node || typeof node !== "object") return;
+  if (!node || typeof node !== "object") return false;
 
   const isLast = index === segments.length - 1;
 
@@ -424,49 +440,54 @@ function walkAndRedact(
     if (Array.isArray(node)) {
       for (let i = 0; i < node.length; i++) {
         if (isLast) {
+          changed = node[i] !== replacement || changed;
           node[i] = replacement;
         } else {
-          walkAndRedact(node[i], segments, index + 1, replacement);
+          changed = walkAndRedact(node[i], segments, index + 1, replacement) || changed;
         }
       }
     } else {
       const obj = node as Record<string, unknown>;
       for (const key of Object.keys(obj)) {
         if (isLast) {
+          changed = obj[key] !== replacement || changed;
           obj[key] = replacement;
         } else {
-          walkAndRedact(obj[key], segments, index + 1, replacement);
+          changed = walkAndRedact(obj[key], segments, index + 1, replacement) || changed;
         }
       }
     }
-    return;
+    return changed;
   }
 
   if (segment.kind === "index") {
-    if (!Array.isArray(node)) return;
-    if (segment.index < 0 || segment.index >= node.length) return;
+    if (!Array.isArray(node)) return false;
+    if (segment.index < 0 || segment.index >= node.length) return false;
     if (isLast) {
+      changed = node[segment.index] !== replacement;
       node[segment.index] = replacement;
     } else {
-      walkAndRedact(node[segment.index], segments, index + 1, replacement);
+      changed = walkAndRedact(node[segment.index], segments, index + 1, replacement);
     }
-    return;
+    return changed;
   }
 
   // literal segment
   if (Array.isArray(node)) {
     for (const child of node) {
-      walkAndRedact(child, segments, index, replacement);
+      changed = walkAndRedact(child, segments, index, replacement) || changed;
     }
-    return;
+    return changed;
   }
   const obj = node as Record<string, unknown>;
-  if (!(segment.name in obj)) return;
+  if (!(segment.name in obj)) return false;
   if (isLast) {
+    changed = obj[segment.name] !== replacement;
     obj[segment.name] = replacement;
   } else {
-    walkAndRedact(obj[segment.name], segments, index + 1, replacement);
+    changed = walkAndRedact(obj[segment.name], segments, index + 1, replacement);
   }
+  return changed;
 }
 
 /* ----------------------------- Utilities ----------------------------- */

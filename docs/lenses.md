@@ -383,7 +383,13 @@ Preset: **`snowflake-labs`**. Upstream: [Snowflake-Labs/mcp](https://github.com/
 
 [Snowflake-Labs/mcp](https://github.com/Snowflake-Labs/mcp) via `uvx` with PAT auth. Blocks the generic DDL writers `create_object` / `drop_object` / `create_or_alter_object` (plus defensive globs); sqlGuard on `run_snowflake_query`; PII redaction including PAT/JWT-shaped tokens; audit. Includes a `services.example.yaml` for the MCP's required `--service-config-file`.
 
+The upstream project is [deprecated and no longer maintained](https://github.com/Snowflake-Labs/mcp#readme). Its replacement, the [Snowflake-managed MCP server](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-mcp), uses a different setup; this preset wraps the legacy `snowflake-labs-mcp` server.
+
 [Prerequisites and policy details](../lenses/databases/snowflake-labs/README.md).
+
+Before using either entry, have an administrator create a dedicated account role such as `JANUSCOPE_READONLY` and grant it to `your_user`. For basic queries, grant only `USAGE` on the chosen warehouse, database and schemas, plus `SELECT` on the permitted tables and views. Additional services need their documented object permissions. Keep administrative and write privileges out of this role and its inherited grants. See [Snowflake privilege requirements](https://docs.snowflake.com/en/user-guide/security-access-control-privileges) and [custom role assignment](https://docs.snowflake.com/en/user-guide/security-access-control-considerations#managing-custom-roles). Generate the PAT with [`ROLE_RESTRICTION`](https://docs.snowflake.com/en/user-guide/programmatic-access-tokens) set to this role; the example role is a placeholder, not a built-in role.
+
+In the upstream services YAML, use [`sql_statement_permissions`](https://github.com/Snowflake-Labs/mcp#sql-execution) to allow required read statement types and deny writes and `Unknown`. The [bundled example](../lenses/databases/snowflake-labs/services.example.yaml) disables common write classes but permits `Command`, which upstream uses for both `SHOW` and `CALL`. These filters complement the restricted database role; they do not replace it.
 
 ### With JanuScope
 
@@ -395,7 +401,7 @@ Preset: **`snowflake-labs`**. Upstream: [Snowflake-Labs/mcp](https://github.com/
     "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
     "SNOWFLAKE_USER": "your_user",
     "SNOWFLAKE_PASSWORD": "<your_PAT>",
-    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
     "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
     "SNOWFLAKE_MCP_CONFIG": "/path/to/services.yaml"
   }
@@ -413,7 +419,7 @@ Preset: **`snowflake-labs`**. Upstream: [Snowflake-Labs/mcp](https://github.com/
     "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
     "SNOWFLAKE_USER": "your_user",
     "SNOWFLAKE_PASSWORD": "<your_PAT>",
-    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
     "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH"
   }
 }

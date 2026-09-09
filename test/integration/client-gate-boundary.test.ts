@@ -114,7 +114,8 @@ it("refuses a malformed request ID with a valid error and continues serving stdi
   try {
     clientIn.write('{"jsonrpc":"2.0","id":{"invalid":"id"},"method":"tools/call"}\n');
     clientIn.write(encodeFrame({ jsonrpc: "2.0", id: 0, method: "ping" }));
-    expect(await responses).toEqual([
+    const received = await responses;
+    expect(received).toEqual([
       {
         jsonrpc: "2.0",
         id: null,
@@ -122,6 +123,7 @@ it("refuses a malformed request ID with a valid error and continues serving stdi
       },
       { jsonrpc: "2.0", id: 0, result: { notifications: 0 } },
     ]);
+    expect(JSON.stringify(received[0])).not.toContain("synthetic policy failure");
   } finally {
     clearTimeout(timer!);
     clientIn.end();

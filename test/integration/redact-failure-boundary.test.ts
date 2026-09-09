@@ -3,6 +3,8 @@ import { PassThrough } from "node:stream";
 import { runOverlay } from "../../src/index.js";
 import { encodeFrame, FrameDecoder, type JsonRpcMessage } from "../../src/rpc.js";
 
+const UNCHANGED_JSON = ' \t{ "count": 1.00, "id": 9007199254740993 }\r\n';
+
 const SERVER = [
   'const readline = require("node:readline");',
   'readline.createInterface({ input: process.stdin }).on("line", line => {',
@@ -13,6 +15,11 @@ const SERVER = [
   // The envelope is valid JSON. Its truncated Python row deterministically
   // fails inside redaction, independently of the runtime's stack limit.
   `    const text = "[{'phone': 'synthetic-private-phone'";`,
+  '    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text }] } }) + "\\n");',
+  "    return;",
+  "  }",
+  '  if (mode === "unchanged-json") {',
+  `    const text = ${JSON.stringify(UNCHANGED_JSON)};`,
   '    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text }] } }) + "\\n");',
   "    return;",
   "  }",
@@ -65,6 +72,7 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
       [1, "redaction-failure"],
       [2, "tool-error"],
       [3, "healthy"],
+      [4, "unchanged-json"],
     ] as const) {
       clientIn.write(
         encodeFrame({
@@ -87,6 +95,10 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
       } else if (mode === "redaction-failure") {
         expect(response).toMatchObject({ error: { code: -32603 } });
         expect(response).not.toHaveProperty("result");
+      } else if (mode === "unchanged-json") {
+        expect(response).toMatchObject({
+          result: { content: [{ type: "text", text: UNCHANGED_JSON }] },
+        });
       } else {
         expect(response).toMatchObject({
           result: {

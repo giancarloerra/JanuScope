@@ -18,11 +18,16 @@ import { compileToolMatcher } from "./overlays/_shared.js";
 import { probeTarget } from "./probe.js";
 import { isSuccess, type JsonRpcMessage } from "./rpc.js";
 import type { CheckReport } from "./check.js";
+import { startSupervisorWatchdog, stopDiagnosticProcessTree } from "./check-watchdog.js";
+
+process.once("disconnect", stopDiagnosticProcessTree);
+// The channel may have closed while this worker's modules were loading.
+if (!process.connected) stopDiagnosticProcessTree();
 
 class CheckFailure extends Error {}
 
 const report: CheckReport = { ok: false, checks: [] };
-let phase = "configuration";
+let phase = "diagnostic startup";
 
 function begin(name: string): void {
   phase = name;
@@ -296,13 +301,15 @@ async function run(): Promise<void> {
   report.ok = !report.checks.some((check) => check.status === "fail");
 }
 
-void run()
+void startSupervisorWatchdog()
+  .then(run)
   .catch((error: unknown) => {
     report.checks.push({ name: phase, status: "fail", message: describeFailure(error) });
   })
   .finally(() => {
     process.send?.({ report });
-    // Keep the worker alive until the supervisor terminates its whole process
-    // group, including descendants that ignored the probe's graceful stop.
+    // Keep the worker alive while its supervisor owns process-group cleanup,
+    // including descendants that ignored the probe's graceful stop. Lost IPC
+    // transfers that cleanup to the worker and its independent watchdog.
     setInterval(() => {}, 1000);
   });

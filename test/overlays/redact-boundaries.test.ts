@@ -39,6 +39,60 @@ describe("redaction at response boundaries", () => {
     await pipeline.stop();
   });
   for (const applyTo of ["text", "fields", "all"] as ApplyTo[]) {
+    it.each([
+      ' \t{"amount":1.00, "id":9007199254740993, "label":"\\u0061"}\r\n',
+      'Rows:\r\n[\r\n\t{"count":1}\r\n]\r\n1 row returned',
+      ' \n{ "phone": "[REDACTED]", "amount": 1.00 }\n',
+    ])("preserves unchanged JSON text byte for byte with applyTo=" + applyTo, async (text) => {
+      const { pipeline, toClient } = session({ rules, applyTo });
+      await pipeline.start();
+      const messages: JsonRpcMessage[] = [
+        { jsonrpc: "2.0", id: 1, result: text },
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          result: {
+            content: [{ type: "text", text }],
+            structuredContent: { result: [{ type: "text", text }] },
+          },
+        },
+        { jsonrpc: "2.0", id: 3, error: { code: -32000, message: text, data: { text } } },
+      ];
+      for (const message of messages) await pipeline.handleServerMessage(message);
+      expect(toClient).toEqual(messages);
+      await pipeline.stop();
+    });
+
+    it.each([
+      ' \t{ "note": "customer01@example.invalid", "count": 1.00 }\r\n',
+      ' \t{ "note": "customer01\\u0040example.invalid", "count": 1.00 }\r\n',
+      'Rows: { "note": "customer01\\u0040example.invalid", "count": 1.00 }\n1 row returned',
+    ])(
+      "redacts regex matches in JSON with no matching fields and applyTo=" + applyTo,
+      async (text) => {
+        const { pipeline, toClient } = session({ rules, applyTo });
+        await pipeline.start();
+        await pipeline.handleServerMessage({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { content: [{ type: "text", text }] },
+        });
+        await pipeline.handleServerMessage({
+          jsonrpc: "2.0",
+          id: 2,
+          error: { code: -32000, message: text, data: { text } },
+        });
+        const result = toClient[0] as { result: { content: Array<{ text: string }> } };
+        expect(result.result.content[0]?.text).toContain('"note":"[REDACTED]"');
+        expect(toClient[1]).toMatchObject({
+          id: 2,
+          error: { code: -32000, message: expect.stringContaining('"note":"[REDACTED]"') },
+        });
+        expect(JSON.stringify(toClient)).not.toContain("customer01");
+        await pipeline.stop();
+      },
+    );
+
     it.each([0, "", null, "request-7"])(
       "scrubs JSON-RPC errors with applyTo=" + applyTo + ", preserving id=%s and code",
       async (id) => {
@@ -107,6 +161,38 @@ describe("redaction at response boundaries", () => {
       await pipeline.stop();
     });
   }
+
+  it("keeps applyTo=all field redaction inside arbitrary nested strings", async () => {
+    const { pipeline, toClient } = session({ rules, applyTo: "all" });
+    await pipeline.start();
+    await pipeline.handleServerMessage({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        nested: [
+          '{ "phone": "private-phone", "count": 7 }',
+          "[{'phone': 'private-phone', 'count': 7}]",
+        ],
+      },
+    });
+    expect(toClient[0]).toMatchObject({
+      result: {
+        nested: ['{"phone":"[REDACTED]","count":7}', "[{'phone': \"[REDACTED]\", 'count': 7}]"],
+      },
+    });
+    await pipeline.stop();
+  });
+
+  it("keeps regex redaction in arbitrary nested JSON strings when field rules make no changes", async () => {
+    const { pipeline, toClient } = session({ rules, applyTo: "all" });
+    await pipeline.start();
+    const text = ' \t{ "note": "customer01\\u0040example.invalid", "count": 1.00 }\r\n';
+    await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 1, result: { nested: { text } } });
+    expect(toClient[0]).toMatchObject({
+      result: { nested: { text: '{"note":"[REDACTED]","count":1}' } },
+    });
+    await pipeline.stop();
+  });
 
   it("keeps numeric error codes and ids even under a catch-all field rule", async () => {
     const { pipeline, toClient } = session({ rules: [{ field: "*" }] });

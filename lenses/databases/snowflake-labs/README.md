@@ -126,12 +126,18 @@ config's `env` block reaches the spawned MCP unchanged.
 | `SNOWFLAKE_ACCOUNT`    | `<orgname>-<accountname>` (e.g. `XYZ-ABC123`)                       |
 | `SNOWFLAKE_USER`       | Your Snowflake username                                             |
 | `SNOWFLAKE_PASSWORD`   | Your PAT — read by the MCP from this env var directly (no CLI flag) |
-| `SNOWFLAKE_ROLE`       | Role to assume (e.g. `ACCOUNTADMIN`)                                |
+| `SNOWFLAKE_ROLE`       | Dedicated read-only account role (e.g. `JANUSCOPE_READONLY`)        |
 | `SNOWFLAKE_WAREHOUSE`  | Warehouse to use (e.g. `COMPUTE_WH`)                                |
 | `SNOWFLAKE_MCP_CONFIG` | Absolute path to your services.yaml                                 |
 
-For production, use a dedicated read-only Snowflake user (database
-role with only `SELECT` on the schemas the LLM should see), and
+Before connecting, have an administrator create the dedicated account
+role and grant it to the user. For basic queries, grant the role
+`USAGE` on the selected warehouse, database and schemas, plus `SELECT`
+on only the permitted tables and views. Additional services need their
+documented object permissions. See the [client entry prerequisites](../../../docs/lenses.md#snowflake)
+for role-restricted PATs and upstream SQL policy settings.
+
+For production, use a dedicated read-only Snowflake user with this role, and
 ideally key-pair auth instead of PAT — JanuScope inherits whatever
 auth path the MCP supports without rename.
 
@@ -147,7 +153,7 @@ auth path the MCP supports without rename.
         "SNOWFLAKE_ACCOUNT": "XYZ-ABC123",
         "SNOWFLAKE_USER": "your_user",
         "SNOWFLAKE_PASSWORD": "<your_PAT>",
-        "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+        "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
         "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
         "SNOWFLAKE_MCP_CONFIG": "/Users/you/.januscope/snowflake-services.yaml"
       }

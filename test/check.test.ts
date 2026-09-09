@@ -1,16 +1,67 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { spawn, spawnSync } from "node:child_process";
+import { fork, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import type { CheckReport } from "../src/check.js";
 
 const CLI = resolve("src/cli.ts");
+const WORKER = resolve("src/check-worker.ts");
 const FIXTURE = resolve("test/fixtures/fake-mcp-server.mjs");
 const temporary: string[] = [];
+const workerGroups: number[] = [];
 afterEach(() => {
+  for (const pid of workerGroups.splice(0)) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  }
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
+
+function trackWorkerGroup(pid: unknown): number {
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 1) {
+    throw new Error("Invalid diagnostic fixture worker PID");
+  }
+  workerGroups.push(pid);
+  return pid;
+}
+
+async function expectWorkerTreeStopped(workerPid: number, targetPids?: string): Promise<void> {
+  const recorded: unknown = targetPids ? JSON.parse(readFileSync(targetPids, "utf8")) : [];
+  if (
+    !Array.isArray(recorded) ||
+    recorded.length !== (targetPids ? 2 : 0) ||
+    !recorded.every(
+      (pid: unknown) => typeof pid === "number" && Number.isSafeInteger(pid) && pid > 1,
+    )
+  ) {
+    throw new Error("Invalid diagnostic fixture target PIDs");
+  }
+  const pids = [workerPid, ...recorded];
+  await expect
+    .poll(
+      () =>
+        pids.every((pid) => {
+          const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+            encoding: "utf8",
+          });
+          if (result.error) throw result.error;
+          if ((result.status !== 0 && result.status !== 1) || result.stderr.trim() !== "") {
+            throw new Error("Could not inspect diagnostic fixture process state");
+          }
+          const status = result.stdout.trim();
+          return status === "" || status.startsWith("Z");
+        }),
+      { timeout: 3000 },
+    )
+    .toBe(true);
+  // Once termination is verified, do not signal a stale process-group ID again.
+  const tracked = workerGroups.indexOf(workerPid);
+  if (tracked !== -1) workerGroups.splice(tracked, 1);
+}
 
 function configFile(overrides: Record<string, unknown> = {}): { directory: string; path: string } {
   const directory = mkdtempSync(join(tmpdir(), "januscope-check-test-"));
@@ -334,6 +385,160 @@ describe("check CLI real process boundaries", () => {
       const result = await check(fixture.path);
       expect(result.code).toBe(0);
       assertProcessesStopped(pids);
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "keeps cleanup under supervisor control until IPC disconnects after a successful report",
+    async () => {
+      const fixture = configFile();
+      const pids = join(fixture.directory, "pids.json");
+      const handshake = `require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'stubborn',version:'1'}}}));else if(m.method==='tools/list')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{tools:[{name:'query',inputSchema:{type:'object'}}]}}));});`;
+      writeFileSync(
+        fixture.path,
+        JSON.stringify({
+          target: { command: process.execPath, args: ["-e", HANGING_TARGET + handshake, pids] },
+        }),
+      );
+      const worker = fork(WORKER, [fixture.path], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        execArgv: ["--import", import.meta.resolve("tsx")],
+        env: { ...process.env, HOME: fixture.directory },
+      });
+      const workerPid = trackWorkerGroup(worker.pid);
+      const report = await new Promise<CheckReport>((resolveReport, reject) => {
+        worker.on("message", (message: { report?: CheckReport }) => {
+          if (message.report) resolveReport(message.report);
+        });
+        worker.once("error", reject);
+        worker.once("exit", () => reject(new Error("Diagnostic worker exited before reporting")));
+      });
+      expect(report.ok).toBe(true);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+      expect(worker.connected).toBe(true);
+      expect(worker.exitCode).toBeNull();
+      expect(worker.signalCode).toBeNull();
+      worker.disconnect();
+      await expectWorkerTreeStopped(workerPid, pids);
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "stops the detached worker and stubborn descendants when its supervisor is killed mid-handshake",
+    async () => {
+      const fixture = configFile();
+      const pids = join(fixture.directory, "pids.json");
+      writeFileSync(
+        fixture.path,
+        JSON.stringify({
+          target: { command: process.execPath, args: ["-e", HANGING_TARGET, pids] },
+        }),
+      );
+      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:['--import',process.argv[3]]});process.send({workerPid:worker.pid});worker.on('message',()=>{});`;
+      const supervisor = spawn(
+        process.execPath,
+        ["-e", supervisorCode, WORKER, fixture.path, import.meta.resolve("tsx")],
+        {
+          stdio: ["ignore", "ignore", "ignore", "ipc"],
+          env: { ...process.env, HOME: fixture.directory },
+        },
+      );
+      try {
+        const workerPid = await new Promise<number>((resolvePid, reject) => {
+          supervisor.once("message", (message: { workerPid?: unknown }) => {
+            try {
+              resolvePid(trackWorkerGroup(message.workerPid));
+            } catch (error) {
+              reject(error);
+            }
+          });
+          supervisor.once("error", reject);
+          supervisor.once("exit", () => reject(new Error("Fixture supervisor exited early")));
+        });
+        await expect.poll(() => existsSync(pids), { timeout: 4000 }).toBe(true);
+        const exited = new Promise<void>((resolveExit) =>
+          supervisor.once("exit", () => resolveExit()),
+        );
+        supervisor.kill("SIGKILL");
+        await exited;
+        await expectWorkerTreeStopped(workerPid, pids);
+      } finally {
+        supervisor.kill("SIGKILL");
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "stops a worker blocked in a synchronous FIFO read when its supervisor is killed",
+    async () => {
+      const fixture = configFile();
+      rmSync(fixture.path);
+      expect(spawnSync("mkfifo", [fixture.path]).status).toBe(0);
+      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:['--import',process.argv[3]]});process.send({workerPid:worker.pid});worker.on('message',message=>{if(message.phase)process.send({phase:message.phase});});`;
+      const supervisor = spawn(
+        process.execPath,
+        ["-e", supervisorCode, WORKER, fixture.path, import.meta.resolve("tsx")],
+        {
+          stdio: ["ignore", "ignore", "ignore", "ipc"],
+          env: { ...process.env, HOME: fixture.directory },
+        },
+      );
+      try {
+        const configured = new Promise<void>((resolvePhase) => {
+          supervisor.on("message", (message: { phase?: string }) => {
+            if (message.phase === "configuration") resolvePhase();
+          });
+        });
+        const workerPid = await new Promise<number>((resolvePid, reject) => {
+          supervisor.once("message", (message: { workerPid?: unknown }) => {
+            try {
+              resolvePid(trackWorkerGroup(message.workerPid));
+            } catch (error) {
+              reject(error);
+            }
+          });
+          supervisor.once("error", reject);
+          supervisor.once("exit", () => reject(new Error("Fixture supervisor exited early")));
+        });
+        await configured;
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+        const exited = new Promise<void>((resolveExit) =>
+          supervisor.once("exit", () => resolveExit()),
+        );
+        supervisor.kill("SIGKILL");
+        await exited;
+        await expectWorkerTreeStopped(workerPid);
+      } finally {
+        supervisor.kill("SIGKILL");
+      }
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "exits before target startup when IPC is already disconnected during module loading",
+    async () => {
+      const fixture = configFile();
+      const started = join(fixture.directory, "target-started");
+      writeFileSync(
+        fixture.path,
+        JSON.stringify({
+          target: {
+            command: process.execPath,
+            args: ["-e", "require('node:fs').writeFileSync(process.argv[1],'started');", started],
+          },
+        }),
+      );
+      const worker = fork(WORKER, [fixture.path], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        execArgv: ["--import", import.meta.resolve("tsx")],
+        env: { ...process.env, HOME: fixture.directory },
+      });
+      const workerPid = trackWorkerGroup(worker.pid);
+      worker.disconnect();
+      await expectWorkerTreeStopped(workerPid);
+      expect(existsSync(started)).toBe(false);
     },
   );
 
