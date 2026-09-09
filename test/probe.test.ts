@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,16 +9,30 @@ import type { OverlayConfig } from "../src/config.js";
 const FIXTURE = join(process.cwd(), "test", "fixtures", "fake-mcp-server.mjs");
 const failureFixtures: string[] = [];
 
+/** Read a fixture child's PID without allowing process-group IDs or PID 1. */
+function readFixturePid(pidFile: string): number {
+  const value = readFileSync(pidFile, "utf8").trim();
+  const pid = Number(value);
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(pid) || pid <= 1) {
+    throw new Error("invalid fixture PID file");
+  }
+  return pid;
+}
+
+function stopFixtureTarget(pidFile: string): void {
+  try {
+    process.kill(readFixturePid(pidFile), "SIGKILL");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   for (const directory of failureFixtures.splice(0)) {
     const pidFile = join(directory, "pid");
     if (existsSync(pidFile)) {
-      try {
-        process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-      }
+      stopFixtureTarget(pidFile);
     }
     rmSync(directory, { recursive: true, force: true });
   }
@@ -37,7 +51,7 @@ function paginationFailureFixture(closeInput: boolean): { config: OverlayConfig;
 }
 
 async function expectTargetStopped(pidFile: string): Promise<void> {
-  const pid = Number(readFileSync(pidFile, "utf8"));
+  const pid = readFixturePid(pidFile);
   await expect
     .poll(
       () => {
@@ -61,6 +75,33 @@ function fixtureConfig(overrides: Partial<OverlayConfig["target"]> = {}): Overla
 }
 
 describe("probeTarget", () => {
+  it("rejects malformed PID files before cleanup or stopped-target checks can signal a process", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "januscope-probe-pid-"));
+    const pidFile = join(directory, "pid");
+    const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+    try {
+      for (const invalid of [
+        "",
+        " ",
+        "0",
+        "-1",
+        "1",
+        "1.5",
+        "bad-pid",
+        "Infinity",
+        "9007199254740992",
+      ]) {
+        writeFileSync(pidFile, invalid);
+        expect(() => stopFixtureTarget(pidFile)).toThrow("invalid fixture PID file");
+        await expect(expectTargetStopped(pidFile)).rejects.toThrow("invalid fixture PID file");
+      }
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("drives initialize → notifications/initialized → tools/list and returns the tool list", async () => {
     const result = await probeTarget(fixtureConfig(), { timeoutMs: 30_000 });
     expect(result.serverInfo.name).toBe("fake-mcp-server");
