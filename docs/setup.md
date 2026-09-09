@@ -165,9 +165,9 @@ The following cases have regression coverage. This list describes tested behavio
 
 - **`sqlGuard` beyond leading-verb allowlists.** Also rejects `WITH x AS (DELETE …) SELECT …` (CTE-hidden mutations), `SELECT … INTO shadow_table FROM users` (SELECT-INTO creates tables), `EXPLAIN ANALYZE DELETE …` (EXPLAIN executes for ANALYZE), `COPY … PROGRAM …` (RCE via Postgres `COPY PROGRAM`), and a 17-name Postgres admin-function denylist (`pg_sleep`, `lo_import`, `lo_export`, `dblink`, …). Row-locking clauses (`FOR UPDATE`) are whitelisted explicitly so legitimate reads aren't over-blocked. Every one of these is [pinned in a test file](../test/overlays/sqlGuard-embedded-writes.test.ts).
 - **`redact` uses a function replacer.** Passing a string replacement to `String.prototype.replace` lets `$&`, `$1`, `$$` etc. interpolate the _matched secret_ back into the scrubbed output, the exact opposite of what the overlay is for. We use `() => replacement` so the replacement is always literal. [Pinned at test/overlays/redact.test.ts:123](../test/overlays/redact.test.ts).
-- **Embedded-JSON extraction for narrative envelopes.** The official MongoDB MCP wraps its results in `<untrusted-user-data-…>…</untrusted-user-data-…>` tags. A naive JSON-parse fails; a naive regex can't find the balanced-brace boundary. [`extractEmbeddedJsonBlock`](../src/overlays/redact.ts) walks the string with a brace depth counter that respects JSON string escapes, splices the redacted JSON back in, and leaves the prose intact. Without this, `field: "**.email"` would silently miss every MongoDB response.
+- **Balanced row parsing for narrative envelopes.** JSON objects and arrays or Python-style row dictionaries can appear between prose and wrapper tags. The [structured-text scanner](../src/overlays/python-literal.ts) finds container boundaries while respecting quoted strings and escapes. Field rules process each recognized row span, including mixed JSON and Python responses, while preserving the surrounding text.
 - **`audit` opens with mode `0o600`.** The default umask on most hosts produces `0o644`, world-readable, and with `logRawArgs: true` the file contains raw SQL, request bodies, and file contents. We open explicitly at `0o600` and stat-verify the permissions in a regression test.
-- **Required filtering refuses on failure.** Exceptions in request gates or response redaction produce a JSON-RPC error instead of forwarding the unchecked payload. JSON-RPC error messages and data are included in configured redaction; request IDs and error codes remain intact. Other observer overlays retain their existing error behavior.
+- **Required filtering refuses on failure.** Exceptions in request gates or response redaction withhold the unchecked payload. Requests receive JSON-RPC error `-32603`; notifications have no request ID and are dropped without an error response. JSON-RPC error messages and data are included in configured redaction; request IDs and error codes remain intact. Other observer overlays retain their existing error behavior.
 - **Preset verification is version-specific.** Each preset README records its upstream and test status. `npm run validate:lenses:probe` can launch targets and compare tool names against policy rules when dependencies and credentials are available. A recorded probe does not cover future upstream changes or prove backend operations.
 
 ## Configuration reference
@@ -248,7 +248,7 @@ redact:
     - field:
         <path> # dotted path with * (one level), ** (any depth), [i] (index).
         # Auto-parses JSON strings inside text blocks, and
-        # also extracts a single balanced JSON object/array
+        # also processes balanced JSON and Python row spans
         # embedded in a narrative envelope (e.g. MongoDB's
         # <untrusted-user-data-…> wrapper).
   replacement: <string> # default "[REDACTED]"
@@ -303,11 +303,11 @@ Environment variables in string values are expanded with `${VAR}` or `$VAR`. Mis
 
 ### Response redaction formats
 
-Field rules cover structured response properties, JSON inside text blocks, the first balanced JSON object or array inside a narrative wrapper, and Python-style row dictionaries returned by `postgres-mcp`. Copies of text blocks nested inside `structuredContent` are processed too. Python rows retain the original spelling of unrelated values, including decimals, dates, UUIDs, network addresses, ranges, and multiranges. A recognized Python row with incomplete or unsupported syntax is refused instead of forwarded unchanged.
+Field rules cover structured response properties and recognized JSON and Python-style row spans inside text, including surrounding prose and mixed representations. Copies of text blocks nested inside `structuredContent` are processed too. Python rows retain the original spelling of unrelated values, including decimals, dates, UUIDs, network addresses, ranges, and multiranges. When field rules are configured, JSON text with duplicate object keys is refused because parsing could hide an earlier sensitive value. Recognized Python rows with duplicate keys, incomplete syntax or unsupported values are also refused. Field rules leave unrelated prose and non-row set literals unchanged.
 
 `applyTo: text` is the default: regex rules process text blocks, while field rules also inspect structured properties. The legacy `fields` setting retains that behavior. `all` also processes other string values throughout the result. JSON-RPC errors always process message and data strings, preserving the numeric error code and request ID. These rules do not inspect image bytes or guarantee detection of arbitrary formats and unmatched secrets.
 
-If required redaction fails, the client receives JSON-RPC error `-32603`; the original response is withheld. Safe diagnostics identify the failing overlay and error category without copying the sensitive payload. A later valid response can still be processed on the same connection.
+If required redaction fails, the original payload is withheld. Requests receive JSON-RPC error `-32603`; notifications have no request ID and are dropped without an error response. Safe diagnostics identify the failing overlay and error category without copying the sensitive payload. A later valid response can still be processed on the same connection.
 
 ### Credential-vault references (optional)
 

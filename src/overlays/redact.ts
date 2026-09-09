@@ -140,40 +140,26 @@ function scrubTextBlocks(node: unknown, scrub: (text: string) => string): void {
 
 function scrubText(text: string, rules: CompiledRules, replacement: string): string {
   if (rules.fieldPatterns.length > 0) {
+    const applyFields = (root: Record<string, unknown>): boolean =>
+      applyFieldRules(root, rules.fieldPatterns, replacement);
+    const scrubJson = (source: string, parsed: unknown) => {
+      assertUniqueJsonKeys(source);
+      const fieldsChanged = applyFields(parsed as Record<string, unknown>);
+      const normalized = /[\r\n]/.test(source.trim())
+        ? JSON.stringify(parsed, null, 2)
+        : JSON.stringify(parsed);
+      return { text: fieldsChanged ? normalized : source, normalized };
+    };
     const json = tryParseJson(text);
-    if (json) {
-      const fieldsChanged = applyFieldRules(
-        json.parsed as Record<string, unknown>,
-        rules.fieldPatterns,
-        replacement,
-      );
-      const normalized = json.pretty
-        ? JSON.stringify(json.parsed, null, 2)
-        : JSON.stringify(json.parsed);
-      // Retain regex matching against decoded JSON escapes before deciding
-      // that the original text can be forwarded without normalization.
-      const redacted = applyRegexList(normalized, rules.regexes, replacement);
-      if (fieldsChanged || redacted !== normalized) return redacted;
-    } else {
-      const embedded = extractEmbeddedJsonBlock(text);
-      if (embedded) {
-        const fieldsChanged = applyFieldRules(
-          embedded.parsed as Record<string, unknown>,
-          rules.fieldPatterns,
-          replacement,
-        );
-        const normalizedJson = embedded.pretty
-          ? JSON.stringify(embedded.parsed, null, 2)
-          : JSON.stringify(embedded.parsed);
-        const normalized = embedded.before + normalizedJson + embedded.after;
-        const redacted = applyRegexList(normalized, rules.regexes, replacement);
-        if (fieldsChanged || redacted !== normalized) return redacted;
-      } else {
-        const python = redactPythonLiteral(text, (root) =>
-          applyFieldRules(root, rules.fieldPatterns, replacement),
-        );
-        if (python !== null) text = python;
-      }
+    const variants = json
+      ? scrubJson(text, json.parsed)
+      : redactPythonLiteral(text, applyFields, scrubJson);
+    if (variants) {
+      // Match decoded JSON and narrative together. Keep only one regex pass
+      // so a replacement cannot be matched again merely because it was JSON.
+      const redacted = applyRegexList(variants.normalized, rules.regexes, replacement);
+      if (redacted !== variants.normalized) return redacted;
+      text = variants.text;
     }
   }
   return applyRegexList(text, rules.regexes, replacement);
@@ -205,64 +191,22 @@ function tryParseJson(text: string): { parsed: unknown; pretty: boolean } | null
   }
 }
 
-/**
- * Fallback for text that isn't pure JSON (the common shape for MCPs that
- * wrap their results in a narrative preamble + security-warning envelope,
- * e.g. the official MongoDB MCP). We attempt to isolate a single JSON
- * object or array embedded in the middle of the string by:
- *   1. Finding the first `{` or `[`, and
- *   2. Walking the string with a balanced-brace scanner that respects
- *      string literals and escapes.
- *
- * Returns `null` unless the candidate substring parses cleanly to an
- * object or array — we never redact off a scalar match. Conservative by
- * design: at most one JSON block is extracted per text block.
- */
-function extractEmbeddedJsonBlock(
-  text: string,
-): { before: string; parsed: unknown; after: string; pretty: boolean } | null {
-  const startIdx = text.search(/[{[]/);
-  if (startIdx === -1) return null;
-  const open = text[startIdx];
-  const close = open === "{" ? "}" : "]";
-
-  // Balanced scan honouring JSON string literals.
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let endIdx = -1;
-  for (let i = startIdx; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escape) escape = false;
-      else if (ch === "\\") escape = true;
-      else if (ch === '"') inString = false;
-      continue;
+/** Refuse ambiguous objects before preserving text that JSON.parse simplified. */
+function assertUniqueJsonKeys(text: string): void {
+  const objects: Array<Set<string> | null> = [];
+  const tokens = /"(?:\\[\s\S]|[^"\\])*"|[{}[\]]/g;
+  for (const token of text.matchAll(tokens)) {
+    const value = token[0];
+    if (value === "{") objects.push(new Set());
+    else if (value === "[") objects.push(null);
+    else if (value === "}" || value === "]") objects.pop();
+    else {
+      const keys = objects[objects.length - 1];
+      if (!keys || !/^\s*:/.test(text.slice(token.index + value.length))) continue;
+      const key = JSON.parse(value) as string;
+      if (keys.has(key)) throw new TypeError("redact: duplicate JSON object key");
+      keys.add(key);
     }
-    if (ch === '"') inString = true;
-    else if (ch === open) depth++;
-    else if (ch === close) {
-      depth--;
-      if (depth === 0) {
-        endIdx = i;
-        break;
-      }
-    }
-  }
-  if (endIdx === -1) return null;
-
-  const candidate = text.slice(startIdx, endIdx + 1);
-  try {
-    const parsed = JSON.parse(candidate) as unknown;
-    if (parsed === null || typeof parsed !== "object") return null;
-    return {
-      before: text.slice(0, startIdx),
-      parsed,
-      after: text.slice(endIdx + 1),
-      pretty: /[\r\n]/.test(candidate),
-    };
-  } catch {
-    return null;
   }
 }
 

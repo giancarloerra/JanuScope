@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Giancarlo Erra - Altaire Limited
 /**
- * Field redaction for the Python row repr emitted by postgres-mcp.
+ * Field redaction for Python row repr and JSON spans in response text.
  * No Python or expression evaluation: retain source spans and replace only
  * selected values. Unrelated database types and formatting stay verbatim.
  */
@@ -13,22 +13,23 @@ interface Node {
   children: Array<{ key: string; node: Node }>;
 }
 
+interface RedactedText {
+  text: string;
+  normalized: string;
+}
+
 /**
- * Apply field replacements to a Python row representation without evaluating it.
- * Return null when no row container is recognized; reject malformed or unsupported syntax.
+ * Apply field replacements to recognized row spans without evaluating them.
+ * Preserve surrounding text and optionally delegate JSON spans to their own rules.
+ * Return original-format and normalized variants for a single enclosing regex pass,
+ * or null when no handled container is recognized; reject malformed recognized rows.
  */
 export function redactPythonLiteral(
   text: string,
   applyFields: (root: Record<string, unknown>) => void,
-): string | null {
-  // Ordinary prose and JSON use the existing paths. Once a Python-style
-  // row container is recognized, incomplete/unsupported syntax is an error,
-  // never permission to forward the original sensitive row.
-  if (!/^\s*(?:\[\s*)*\{\s*['"]/.test(text)) return null;
-  const parser = new LiteralParser(text);
-  const root = parser.parse();
-  applyFields(root.value as Record<string, unknown>);
-  const edits: Array<{ start: number; end: number; text: string }> = [];
+  redactJson?: (text: string, parsed: unknown) => RedactedText,
+): RedactedText | null {
+  const edits: Array<{ start: number; end: number; text: string; normalized?: string }> = [];
   const collect = (node: Node): void => {
     const object = node.value as Record<string, unknown>;
     for (const child of node.children) {
@@ -41,24 +42,107 @@ export function redactPythonLiteral(
       }
     }
   };
-  collect(root);
+  let recognized = false;
+  const ends = new Map<number, number | null>();
+  for (let position = 0; position < text.length; position++) {
+    if (!/[{[(]/.test(text[position]!)) continue;
+    const end = containerEnd(text, position, ends);
+    const candidate = text.slice(position, end ?? undefined);
+    // JSON delegates to its own redaction rules. Skip whole non-row containers
+    // so quoted examples inside JSON, sets or string lists are not mistaken
+    // for another row.
+    if (end !== null) {
+      let json: unknown;
+      try {
+        json = JSON.parse(candidate);
+      } catch {
+        // A balanced Python representation need not be valid JSON.
+      }
+      if (json !== undefined) {
+        if (redactJson) {
+          const redacted = redactJson(candidate, json);
+          edits.push({ start: position, end, ...redacted });
+          recognized = true;
+        }
+        position = end - 1;
+        continue;
+      }
+    }
+    const wrappers = /^(?:[[(]\s*)*/.exec(candidate)![0];
+    if (
+      !/^\{\s*(?:'(?:\\[^\r\n]|[^'\\\r\n])*'|"(?:\\[^\r\n]|[^"\\\r\n])*")\s*:/.test(
+        candidate.slice(wrappers.length),
+      )
+    ) {
+      if (end !== null && (text[position] === "{" || /^[[(]\s*['"]/.test(candidate))) {
+        position = end - 1;
+      } else if (wrappers.length > 0) {
+        position += wrappers.length - 1;
+      }
+      continue;
+    }
+    // A quoted key followed by a colon identifies a row, rather than a set.
+    // Once recognized, malformed or unsupported values must still refuse.
+    const root = new LiteralParser(text, position).parse();
+    applyFields(root.value as Record<string, unknown>);
+    collect(root);
+    recognized = true;
+    position = root.end - 1;
+  }
+  if (!recognized) return null;
   let redacted = text;
+  let normalized = text;
   for (const edit of edits.sort((a, b) => b.start - a.start)) {
     redacted = redacted.slice(0, edit.start) + edit.text + redacted.slice(edit.end);
+    normalized =
+      normalized.slice(0, edit.start) + (edit.normalized ?? edit.text) + normalized.slice(edit.end);
   }
-  return redacted;
+  return { text: redacted, normalized };
+}
+
+/** Cache balanced container ends so nested or incomplete text is scanned once. */
+function containerEnd(
+  text: string,
+  start: number,
+  ends: Map<number, number | null>,
+): number | null {
+  const cached = ends.get(start);
+  if (cached !== undefined) return cached;
+  const closes: Array<{ start: number; close: string }> = [];
+  let quote: string | undefined;
+  for (let position = start; position < text.length; position++) {
+    const char = text[position]!;
+    if (quote) {
+      if (char === "\\") position++;
+      else if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === "{" || char === "[" || char === "(") {
+      closes.push({ start: position, close: char === "{" ? "}" : char === "[" ? "]" : ")" });
+    } else if (char === "}" || char === "]" || char === ")") {
+      const open = closes.pop();
+      if (open?.close !== char) {
+        if (open) ends.set(open.start, null);
+        for (const pending of closes) ends.set(pending.start, null);
+        return null;
+      }
+      ends.set(open.start, position + 1);
+      if (closes.length === 0) return position + 1;
+    }
+  }
+  for (const pending of closes) ends.set(pending.start, null);
+  return null;
 }
 
 class LiteralParser {
-  private position = 0;
-
-  constructor(private readonly source: string) {}
+  constructor(
+    private readonly source: string,
+    private position: number,
+  ) {}
 
   parse(): Node {
-    const node = this.value(0);
-    this.space();
-    if (this.position !== this.source.length) this.invalid();
-    return node;
+    return this.value(0);
   }
 
   private invalid(): never {

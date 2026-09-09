@@ -360,3 +360,209 @@ describe("redaction at response boundaries", () => {
     await pipeline.stop();
   });
 });
+
+describe("Python rows in response text", () => {
+  function messages(text: string): JsonRpcMessage[] {
+    return [
+      { jsonrpc: "2.0", id: 1, result: text },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        result: {
+          content: [{ type: "text", text }],
+          structuredContent: { result: [{ type: "text", text }] },
+        },
+      },
+      { jsonrpc: "2.0", id: 3, error: { code: -32000, message: text, data: { text } } },
+    ];
+  }
+
+  const row = "[{'phone': 'private-phone', 'amount': Decimal('1.00'), 'label': 'braces } ]'}]";
+  for (const applyTo of ["text", "fields", "all"] as ApplyTo[]) {
+    it.each([
+      "Rows: " + row,
+      row + "\n1 row returned",
+      "Rows:\r\n" + row + "\r\n1 row returned",
+      "Here's the result:\n```python\n" + row + "\n```",
+      "{'a', 'b'}\nRows: " + row,
+      '{ "count": 1.00, "id": 9007199254740993 }\nRows: ' + row,
+    ])("redacts wrapped Python rows with applyTo=" + applyTo, async (text) => {
+      const { pipeline, toClient } = session({ rules, applyTo });
+      await pipeline.start();
+      const input = messages(text);
+      for (const message of input) await pipeline.handleServerMessage(message);
+      expect(toClient).toEqual(messages(text.replace("'private-phone'", '"[REDACTED]"')));
+      expect(input).toEqual(messages(text));
+      await pipeline.stop();
+    });
+  }
+
+  it("redacts every Python row after an existing JSON span", async () => {
+    const { pipeline, toClient } = session({ rules });
+    await pipeline.start();
+    const text =
+      "{ \"count\": 1.00 }\nRows: [{'phone': 'first-private'}]\n" +
+      "More rows: {'phone': 'second-private'}\n2 rows returned";
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(
+      messages(
+        text.replace("'first-private'", '"[REDACTED]"').replace("'second-private'", '"[REDACTED]"'),
+      ),
+    );
+    await pipeline.stop();
+  });
+
+  it("preserves existing JSON redaction while also redacting following Python rows", async () => {
+    const { pipeline, toClient } = session({ rules });
+    await pipeline.start();
+    const text = '{ "phone": "json-private" }\nRows: ' + row;
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(
+      messages('{"phone":"[REDACTED]"}\nRows: ' + row.replace("'private-phone'", '"[REDACTED]"')),
+    );
+    await pipeline.stop();
+  });
+
+  it.each(['{"phone":"json-private"}', '[{"phone":"json-private"}]'])(
+    "redacts JSON following Python rows",
+    async (json) => {
+      const { pipeline, toClient } = session({ rules });
+      await pipeline.start();
+      const text = "Rows: " + row + "\nMore: " + json;
+      for (const message of messages(text)) await pipeline.handleServerMessage(message);
+      expect(toClient).toEqual(
+        messages(
+          text.replace("'private-phone'", '"[REDACTED]"').replace("json-private", "[REDACTED]"),
+        ),
+      );
+      await pipeline.stop();
+    },
+  );
+
+  it.each(['{"count": 1}', '[1, 2, {"count": 3}]'])(
+    "keeps JSON-compatible values inside a Python row",
+    async (value) => {
+      const { pipeline, toClient } = session({ rules });
+      await pipeline.start();
+      const text = "Rows: [{'phone': 'private-phone', 'meta': " + value + "}]\n1 row returned";
+      for (const message of messages(text)) await pipeline.handleServerMessage(message);
+      expect(toClient).toEqual(messages(text.replace("'private-phone'", '"[REDACTED]"')));
+      await pipeline.stop();
+    },
+  );
+
+  it.each([
+    { regexes: ["a"] },
+    { regexes: ["a", "aa"] },
+    { regexes: ['J: \\{"x":"a"\\}'] },
+    { regexes: ['\\] J: \\{"x":"a"\\}'] },
+  ])("applies regex rules once across mixed Python, JSON and narrative", async ({ regexes }) => {
+    const replacement = "aa";
+    const { pipeline, toClient } = session({
+      rules: [{ field: "**.phone" }, ...regexes.map((regex) => ({ regex }))],
+      replacement,
+    });
+    await pipeline.start();
+    const text = `S: [{'x': 1}] J: { "x": "a" } E`;
+    let expected = `S: [{'x': 1}] J: {"x":"a"} E`;
+    for (const regex of regexes)
+      expected = expected.replace(new RegExp(regex, "g"), () => replacement);
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(expected));
+    await pipeline.stop();
+  });
+
+  it("retains escaped JSON regex matches after Python rows and literal replacements", async () => {
+    const { pipeline, toClient } = session({
+      rules: [{ field: "**.phone" }, { regex: "customer01@example\\.invalid" }],
+      replacement: "X$&X",
+    });
+    await pipeline.start();
+    const text = `Rows: [{'count': 1}]\nMore: { "note": "customer01\\u0040example.invalid" }`;
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(`Rows: [{'count': 1}]\nMore: {"note":"X$&X"}`));
+    await pipeline.stop();
+  });
+
+  it("keeps tuple and list wrappers when matching indexed fields", async () => {
+    const { pipeline, toClient } = session({ rules: [{ field: "[1].phone" }] });
+    await pipeline.start();
+    const text = "Rows: ({'phone': 'keep'}, {'phone': 'private-phone'},)\n2 rows returned";
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(text.replace("'private-phone'", '"[REDACTED]"')));
+    await pipeline.stop();
+  });
+
+  it.each([
+    "{'a', 'b'}",
+    "Values: {'phone', 'private-phone'}\n2 values",
+    `{'a', "{'phone': 'literal-string'}"}`,
+    `Values: ["{'phone': 'literal-string'}"]`,
+    `Rows: [{'label': "{'phone': 'literal-string'}", 'amount': Decimal('1.00')}]\n1 row returned`,
+    "Rows: [{'phone': '[REDACTED]', 'amount': Decimal('1.00')}]\n1 row returned",
+  ])("preserves non-row sets, quoted examples and unmatched values", async (text) => {
+    const { pipeline, toClient } = session({ rules });
+    await pipeline.start();
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(text));
+    await pipeline.stop();
+  });
+
+  it.each([
+    '{"phone":"json-private","phone":"[REDACTED]"}',
+    '{"phone":"json-private","ph\\u006fne":"[REDACTED]"}',
+    '{"data":{"phone":"json-private"},"data":0}',
+    '[{"phone":"json-private","phone":"[REDACTED]"}]',
+    '{"phone":"[REDACTED]","phone":"[REDACTED]"}',
+    `Rows: [{'count': 1}]\nMore: {"phone":"json-private","phone":"[REDACTED]"}`,
+  ])("refuses duplicate JSON keys instead of preserving hidden field values", async (text) => {
+    const { pipeline, toClient, logs } = session({ rules });
+    await pipeline.start();
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    for (const [index, response] of toClient.entries()) {
+      expect(response).toMatchObject({ id: index + 1, error: { code: -32603 } });
+      expect(response).not.toHaveProperty("result");
+    }
+    expect(toClient).toHaveLength(3);
+    expect(JSON.stringify([toClient, logs])).not.toContain("json-private");
+    await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    expect(toClient[3]).toEqual({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    await pipeline.stop();
+  });
+
+  it("preserves distinct escaped JSON keys and untouched numeric spelling", async () => {
+    const { pipeline, toClient } = session({ rules });
+    await pipeline.start();
+    const text =
+      'Rows: { "label": "a", "la\\u0062el2": "b", "count": 1.00, "id": 9007199254740993 }';
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(text));
+    await pipeline.stop();
+  });
+
+  it.each([
+    "Rows: [{'phone': 'private-phone'",
+    "Rows: [[{'phone': 'private-phone'}]\n1 row returned",
+    "Rows: [{'phone': 'private-phone', 'value': UnknownType('x')}]\n1 row returned",
+    "Rows: [{'phone': 'private-phone', 'value': Decimal({'phone': 'hidden'})}]\n1 row returned",
+    "Rows: [{'phone': 'first-private', 'phone': 'second-private'}]\n1 row returned",
+    "Rows: [{'phone': 'first-private'}]\nMore: [{'phone': 'second-private'",
+    '{"count":1}\nRows: ' + "[{'phone': 'private-phone'",
+    "Rows: " + "[".repeat(258) + "{'phone': 'private-phone'}" + "]".repeat(258),
+  ])("refuses malformed recognized rows in narrative and recovers", async (text) => {
+    const { pipeline, toClient, logs } = session({ rules });
+    await pipeline.start();
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual([
+      expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 2, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 3, error: expect.objectContaining({ code: -32603 }) }),
+    ]);
+    expect(JSON.stringify([toClient, logs])).not.toMatch(
+      /private-phone|first-private|second-private|hidden/,
+    );
+    await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    expect(toClient[3]).toEqual({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    await pipeline.stop();
+  });
+});
