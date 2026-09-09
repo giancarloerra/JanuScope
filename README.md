@@ -25,7 +25,7 @@ npx -y januscope lenses show postgres-crystaldba
 npx -y januscope check --config postgres-crystaldba
 ```
 
-The check starts the target and discovers tools. It does not call database tools or prove that backend permissions and every redaction rule work. Package runners may download the upstream on first use. [Setup checks and troubleshooting](./docs/setup.md#check-a-setup).
+The check starts the target and discovers tools without invoking upstream MCP tools. When `dbSchema` is configured, startup also connects to the configured database and inspects schema metadata. A successful check does not prove backend permissions or every redaction rule. Package runners may download the upstream on first use. [Setup checks and troubleshooting](./docs/setup.md#check-a-setup).
 
 ### 2. Connect Claude Code
 
