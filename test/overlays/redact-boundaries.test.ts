@@ -258,16 +258,13 @@ describe("redaction at response boundaries", () => {
     await pipeline.start();
     const result: Record<string, unknown> = {
       content: [{ type: "text", text: "customer01@example.invalid" }],
+      // A programmatic overlay can introduce values that structuredClone
+      // cannot copy. This fails deterministically without a stack-depth guess.
+      uncloneable: () => "synthetic-private-value",
     };
-    let node = result;
-    for (let i = 0; i < 6000; i++) {
-      const child: Record<string, unknown> = {};
-      node.child = child;
-      node = child;
-    }
     await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 7, result });
     expect(toClient[0]).toMatchObject({ id: 7, error: { code: -32603 } });
-    expect(JSON.stringify([toClient, logs])).not.toContain("customer01");
+    expect(JSON.stringify([toClient, logs])).not.toMatch(/customer01|synthetic-private/);
     await pipeline.handleServerMessage({
       jsonrpc: "2.0",
       id: 8,

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Giancarlo Erra - Altaire Limited
 import { fork, spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import * as nodeModule from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface CheckItem {
   name: string;
@@ -46,13 +47,25 @@ export async function checkConfig(
   if (options.signal?.aborted) return failed("cancelled", "Setup check cancelled.");
 
   const source = import.meta.url.endsWith(".ts");
+  // tsx uses --loader before Node 20.6's module.register API. Resolve via
+  // createRequire because import.meta.resolve is still flagged there.
+  const workerExecArgv: string[] = [];
+  if (source) {
+    const sourceRequire = nodeModule.createRequire(import.meta.url);
+    const loader = pathToFileURL(sourceRequire.resolve("tsx")).href;
+    if (typeof nodeModule.register === "function") workerExecArgv.push("--import", loader);
+    else {
+      // Register CommonJS before the legacy ESM loader, as tsx's CLI does.
+      workerExecArgv.push("--require", sourceRequire.resolve("tsx/cjs"), "--loader", loader);
+    }
+  }
   const worker = fork(
     fileURLToPath(new URL(source ? "./check-worker.ts" : "./check-worker.js", import.meta.url)),
     [configArgument],
     {
       detached: process.platform !== "win32",
       stdio: ["ignore", "ignore", "ignore", "ipc"],
-      execArgv: source ? ["--import", import.meta.resolve("tsx")] : [],
+      execArgv: workerExecArgv,
     },
   );
 

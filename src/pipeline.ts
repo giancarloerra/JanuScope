@@ -206,19 +206,21 @@ export class Pipeline {
           // Fail policy depends on overlay kind. "gate" overlays enforce
           // a security boundary (block, sqlGuard); if they crash on a
           // malformed payload, continuing would forward the unchecked
-          // request to the target — defeating the whole point. Respond
-          // with an internal-error JSON-RPC and stop processing.
+          // message to the target. Return an internal error to the side
+          // awaiting a response; notifications are dropped without one.
           // "observer" overlays enhance but do not gate; a crash there
           // should not break the caller.
-          if (overlay.kind === "gate" && isRequestMessage(current)) {
+          if (overlay.kind === "gate") {
             rootSpan.setAttribute("januscope.outcome", "gate_failure");
             rootSpan.setStatus("error", `gate overlay '${overlay.name}' failed`);
-            this.hooks.onForwardToClient(
-              makeInternalErrorResponse(
-                (current as { id: number | string }).id,
+            if ("id" in current) {
+              const response = makeInternalErrorResponse(
+                current.id,
                 `januscope: gate overlay '${overlay.name}' failed; message refused for safety.`,
-              ),
-            );
+              );
+              if (isRequestMessage(current)) this.hooks.onForwardToClient(response);
+              else this.hooks.onForwardToTarget(response);
+            }
             return;
           }
           // observer overlay: fail open, continue.

@@ -251,7 +251,8 @@ export async function probeTarget(
             );
           } catch (err) {
             clearTimeout(timer);
-            fail(new Error(`failed to send tools/list: ${(err as Error).message}`));
+            fail(new Error(`failed to send tools/list: ${(err as Error).message}`, { cause: err }));
+            return;
           }
           continue;
         }
@@ -293,14 +294,20 @@ export async function probeTarget(
               }
               seenCursors.add(cursor);
               toolsRequestId++;
-              child.stdin?.write(
-                JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: toolsRequestId,
-                  method: "tools/list",
-                  params: { cursor },
-                }) + "\n",
-              );
+              try {
+                child.stdin?.write(
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: toolsRequestId,
+                    method: "tools/list",
+                    params: { cursor },
+                  }) + "\n",
+                );
+              } catch (err) {
+                clearTimeout(timer);
+                fail(new Error("failed to send paginated tools/list", { cause: err }));
+                return;
+              }
               continue;
             }
           }
@@ -335,7 +342,7 @@ export async function probeTarget(
       );
     } catch (err) {
       clearTimeout(timer);
-      fail(new Error(`failed to send initialize: ${(err as Error).message}`));
+      fail(new Error(`failed to send initialize: ${(err as Error).message}`, { cause: err }));
     }
   });
 }

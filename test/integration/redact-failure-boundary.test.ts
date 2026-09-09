@@ -9,10 +9,11 @@ const SERVER = [
   "  const request = JSON.parse(line);",
   '  if (!("id" in request) || !request.method) return;',
   "  const mode = request.params?.arguments?.mode;",
-  '  if (mode === "deep") {',
-  '    process.stdout.write(\'{"jsonrpc":"2.0","id":\' + JSON.stringify(request.id) +',
-  '      \',"result":{"content":[{"type":"text","text":"synthetic-private@example.invalid"}],"nested":\' +',
-  '      \'{"child":\'.repeat(6000) + "{}" + "}".repeat(6000) + "}}\\n");',
+  '  if (mode === "redaction-failure") {',
+  // The envelope is valid JSON. Its truncated Python row deterministically
+  // fails inside redaction, independently of the runtime's stack limit.
+  `    const text = "[{'phone': 'synthetic-private-phone'";`,
+  '    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text }] } }) + "\\n");',
   "    return;",
   "  }",
   '  const body = mode === "error"',
@@ -22,7 +23,7 @@ const SERVER = [
   "});",
 ].join("\n");
 
-it("refuses native redaction failures over MCP stdio and continues serving healthy responses", async () => {
+it("refuses redaction failures over MCP stdio and continues serving healthy responses", async () => {
   const clientIn = new PassThrough();
   const clientOut = new PassThrough();
   const inbox: JsonRpcMessage[] = [];
@@ -61,7 +62,7 @@ it("refuses native redaction failures over MCP stdio and continues serving healt
   try {
     for (const [id, mode] of [
       [0, "error"],
-      [1, "deep"],
+      [1, "redaction-failure"],
       [2, "tool-error"],
       [3, "healthy"],
     ] as const) {
@@ -83,7 +84,7 @@ it("refuses native redaction failures over MCP stdio and continues serving healt
             data: { phone: "[REDACTED]" },
           },
         });
-      } else if (mode === "deep") {
+      } else if (mode === "redaction-failure") {
         expect(response).toMatchObject({ error: { code: -32603 } });
         expect(response).not.toHaveProperty("result");
       } else {

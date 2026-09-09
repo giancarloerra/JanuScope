@@ -1,9 +1,58 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeTarget } from "../src/probe.js";
 import type { OverlayConfig } from "../src/config.js";
 
 const FIXTURE = join(process.cwd(), "test", "fixtures", "fake-mcp-server.mjs");
+const failureFixtures: string[] = [];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const directory of failureFixtures.splice(0)) {
+    const pidFile = join(directory, "pid");
+    if (existsSync(pidFile)) {
+      try {
+        process.kill(Number(readFileSync(pidFile, "utf8")), "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function paginationFailureFixture(closeInput: boolean): { config: OverlayConfig; pidFile: string } {
+  const directory = mkdtempSync(join(tmpdir(), "januscope-probe-channel-"));
+  failureFixtures.push(directory);
+  const pidFile = join(directory, "pid");
+  const page = "send(msg.id,{tools:[],nextCursor:'page2'});";
+  const config = scriptedConfig(
+    `require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000);` +
+      (closeInput ? `process.stdin.destroy();require('node:fs').closeSync(0);${page}` : page),
+  );
+  return { config, pidFile };
+}
+
+async function expectTargetStopped(pidFile: string): Promise<void> {
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  await expect
+    .poll(
+      () => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
+          throw error;
+        }
+      },
+      { timeout: 3000 },
+    )
+    .toBe(true);
+}
 
 function fixtureConfig(overrides: Partial<OverlayConfig["target"]> = {}): OverlayConfig {
   return {
@@ -70,6 +119,37 @@ describe("probeTarget diagnostic protocol verification", () => {
         timeoutMs: 15_000,
       }),
     ).rejects.toMatchObject({ code: "INVALID_MCP_RESPONSE" });
+  });
+
+  it("retains a synchronous pagination write failure and stops the real target", async () => {
+    const fixture = paginationFailureFixture(false);
+    const cause = Object.assign(new Error("synthetic write failure"), { code: "EPIPE" });
+    const originalWrite = Socket.prototype.write;
+    vi.spyOn(Socket.prototype, "write").mockImplementation(function (
+      this: Socket,
+      ...args: Parameters<typeof Socket.prototype.write>
+    ) {
+      const chunk = args[0];
+      if (typeof chunk === "string" && chunk.includes('"params":{"cursor":"page2"}')) {
+        throw cause;
+      }
+      return originalWrite.apply(this, args);
+    });
+    await expect(
+      probeTarget(fixture.config, { verifyProtocol: true, timeoutMs: 15_000 }),
+    ).rejects.toMatchObject({ message: "failed to send paginated tools/list", cause });
+    await expectTargetStopped(fixture.pidFile);
+  });
+
+  it("retains the real broken-pipe cause when the target closes stdin before pagination", async () => {
+    const fixture = paginationFailureFixture(true);
+    await expect(
+      probeTarget(fixture.config, { verifyProtocol: true, timeoutMs: 15_000 }),
+    ).rejects.toMatchObject({
+      message: "target input stream failed",
+      cause: { code: "EPIPE" },
+    });
+    await expectTargetStopped(fixture.pidFile);
   });
 
   it("refuses invalid tool entries and preserves safe JSON-RPC error codes", async () => {

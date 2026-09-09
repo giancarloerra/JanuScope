@@ -218,6 +218,22 @@ describe("check CLI real process boundaries", () => {
     expect(result.report.checks.at(-1)?.message).toContain("-32001");
   });
 
+  it("reports a pagination channel failure with its safe cause and no partial tool surface", async () => {
+    const code = `const send=(id,result)=>console.log(JSON.stringify({jsonrpc:'2.0',id,result}));require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const msg=JSON.parse(line);if(msg.method==='initialize')send(msg.id,{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'closed-input',version:'1'}});else if(msg.method==='tools/list'){process.stderr.write('PRIVATE_TEST_SENTINEL');process.stdin.destroy();require('node:fs').closeSync(0);send(msg.id,{tools:[{name:'partial',inputSchema:{type:'object'}}],nextCursor:'page2'});setInterval(()=>{},1000);}});`;
+    const result = await check(
+      configFile({ target: { command: process.execPath, args: ["-e", code] } }).path,
+    );
+    expect(result.code).toBe(1);
+    expect(result.report.ok).toBe(false);
+    expect(result.report.checks.at(-1)).toMatchObject({
+      name: "MCP handshake",
+      status: "fail",
+      message: expect.stringContaining("EPIPE"),
+    });
+    expect(result.report.tools).toBeUndefined();
+    expect(result.stdout + result.stderr).not.toContain("PRIVATE_TEST_SENTINEL");
+  });
+
   it.each([undefined, ["diagnostic_nonpublic"]])(
     "reaches real database startup with configured schemas %j and redacts connection failures",
     async (schemas) => {
