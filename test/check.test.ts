@@ -295,6 +295,29 @@ describe("check CLI real process boundaries", () => {
     expect(result.stdout + result.stderr).not.toContain("PRIVATE_TEST_SENTINEL");
   });
 
+  it("reports the diagnostic page limit without exposing target details or partial tools", async () => {
+    const fixture = configFile();
+    const requests = join(fixture.directory, "requests.jsonl");
+    const code = `const send=(id,result)=>console.log(JSON.stringify({jsonrpc:'2.0',id,result}));require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const msg=JSON.parse(line);if(msg.method==='initialize')send(msg.id,{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'PRIVATE_TEST_SENTINEL',version:'1'}});else if(msg.method==='tools/list'){require('node:fs').appendFileSync(process.argv[1],JSON.stringify(msg)+'\\n');const page=Number(msg.params?.cursor??1);send(msg.id,{tools:[{name:'page_'+page,inputSchema:{type:'object'}}],nextCursor:String(page+1)});}});`;
+    writeFileSync(
+      fixture.path,
+      JSON.stringify({ target: { command: process.execPath, args: ["-e", code, requests] } }),
+    );
+    const result = await check(fixture.path);
+    expect(result.code).toBe(1);
+    expect(result.report.ok).toBe(false);
+    expect(result.report.checks.at(-1)).toMatchObject({
+      name: "MCP handshake",
+      status: "fail",
+      message: expect.stringContaining("limit of 100 pages"),
+    });
+    expect(result.report.tools).toBeUndefined();
+    expect(result.stdout + result.stderr).not.toContain("PRIVATE_TEST_SENTINEL");
+    const sent = readFileSync(requests, "utf8").trim().split("\n");
+    expect(sent).toHaveLength(100);
+    expect(JSON.parse(sent.at(-1)!)).toMatchObject({ params: { cursor: "100" } });
+  });
+
   it.each([undefined, ["diagnostic_nonpublic"]])(
     "reaches real database startup with configured schemas %j and redacts connection failures",
     async (schemas) => {

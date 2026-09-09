@@ -50,6 +50,34 @@ function paginationFailureFixture(closeInput: boolean): { config: OverlayConfig;
   return { config, pidFile };
 }
 
+function paginationFixture(
+  pages: number,
+  finalCursor?: unknown,
+): { config: OverlayConfig; pidFile: string; requestsFile: string } {
+  const directory = mkdtempSync(join(tmpdir(), "januscope-probe-pages-"));
+  failureFixtures.push(directory);
+  const pidFile = join(directory, "pid");
+  const requestsFile = join(directory, "requests");
+  const config = scriptedConfig(
+    `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));` +
+      `const page=Number(msg.params?.cursor??1);fs.appendFileSync(${JSON.stringify(requestsFile)},page+'\\n');` +
+      `const cursor=page<${pages}?String(page+1):${JSON.stringify(finalCursor)};` +
+      `send(msg.id,{tools:[{name:'page_'+page,inputSchema:{type:'object'}}],...(cursor===undefined?{}:{nextCursor:cursor})});`,
+  );
+  return { config, pidFile, requestsFile };
+}
+
+async function expectPagesRequested(
+  fixture: { pidFile: string; requestsFile: string },
+  pages: number,
+): Promise<void> {
+  await expectTargetStopped(fixture.pidFile);
+  rmSync(fixture.pidFile);
+  expect(readFileSync(fixture.requestsFile, "utf8")).toBe(
+    Array.from({ length: pages }, (_, i) => `${i + 1}\n`).join(""),
+  );
+}
+
 async function expectTargetStopped(pidFile: string): Promise<void> {
   const pid = readFixturePid(pidFile);
   await expect
@@ -151,6 +179,54 @@ describe("probeTarget diagnostic protocol verification", () => {
     // Existing callers retain the original one-page probe contract.
     const legacy = await probeTarget(config, { timeoutMs: 15_000 });
     expect(legacy.tools.map((tool) => tool.name)).toEqual(["first"]);
+  });
+
+  it.each([99, 100])("accepts a complete %i-page diagnostic tool list", async (pages) => {
+    const fixture = paginationFixture(pages);
+    const result = await probeTarget(fixture.config, {
+      verifyProtocol: true,
+      timeoutMs: 15_000,
+    });
+    expect(result.tools.map((tool) => tool.name)).toEqual(
+      Array.from({ length: pages }, (_, i) => `page_${i + 1}`),
+    );
+    await expectPagesRequested(fixture, pages);
+  });
+
+  it("refuses more than 100 diagnostic pages without requesting page 101 or returning partial tools", async () => {
+    const fixture = paginationFixture(101);
+    await expect(
+      probeTarget(fixture.config, { verifyProtocol: true, timeoutMs: 15_000 }),
+    ).rejects.toMatchObject({
+      code: "MCP_PAGE_LIMIT_EXCEEDED",
+      message:
+        "tools/list exceeds the diagnostic limit of 100 pages; configure the target to return fewer pages",
+    });
+    await expectPagesRequested(fixture, 100);
+  });
+
+  it.each([42, "2"])(
+    "preserves invalid or repeated cursor failures on page 100 (%j)",
+    async (cursor) => {
+      const fixture = paginationFixture(100, cursor);
+      await expect(
+        probeTarget(fixture.config, { verifyProtocol: true, timeoutMs: 15_000 }),
+      ).rejects.toMatchObject({
+        code: "INVALID_MCP_RESPONSE",
+        message: "tools/list returned an invalid or repeated pagination cursor",
+      });
+      await expectPagesRequested(fixture, 100);
+    },
+  );
+
+  it("retains the legacy single-page result for a target with more than 100 pages", async () => {
+    const fixture = paginationFixture(101);
+    const result = await probeTarget(fixture.config, {
+      verifyProtocol: false,
+      timeoutMs: 15_000,
+    });
+    expect(result.tools.map((tool) => tool.name)).toEqual(["page_1"]);
+    await expectPagesRequested(fixture, 1);
   });
 
   it("refuses a repeated cursor instead of reporting an incomplete list", async () => {

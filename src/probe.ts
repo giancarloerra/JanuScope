@@ -47,6 +47,19 @@ export interface ProbeResult {
 }
 
 const MIN_PROBE_TIMEOUT_MS = 15_000;
+const MAX_DIAGNOSTIC_PAGES = 100;
+
+/** A local diagnostic limit with a message containing no target-supplied values. */
+export class DiagnosticPageLimitError extends Error {
+  readonly code = "MCP_PAGE_LIMIT_EXCEEDED";
+
+  constructor() {
+    super(
+      `tools/list exceeds the diagnostic limit of ${MAX_DIAGNOSTIC_PAGES} pages; configure the target to return fewer pages`,
+    );
+    this.name = "DiagnosticPageLimitError";
+  }
+}
 
 export async function probeTarget(
   config: OverlayConfig,
@@ -294,6 +307,11 @@ export async function probeTarget(
             if (cursor !== undefined) {
               if (typeof cursor !== "string" || seenCursors.has(cursor)) {
                 protocolFailure("tools/list returned an invalid or repeated pagination cursor");
+                return;
+              }
+              if (seenCursors.size + 1 >= MAX_DIAGNOSTIC_PAGES) {
+                clearTimeout(timer);
+                fail(new DiagnosticPageLimitError());
                 return;
               }
               seenCursors.add(cursor);

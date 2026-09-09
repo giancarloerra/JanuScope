@@ -15,7 +15,7 @@ import {
 import { buildOverlays } from "./index.js";
 import { Pipeline } from "./pipeline.js";
 import { compileToolMatcher } from "./overlays/_shared.js";
-import { probeTarget } from "./probe.js";
+import { DiagnosticPageLimitError, probeTarget } from "./probe.js";
 import { isSuccess, type JsonRpcMessage } from "./rpc.js";
 import type { CheckReport } from "./check.js";
 import { startSupervisorWatchdog, stopDiagnosticProcessTree } from "./check-watchdog.js";
@@ -42,6 +42,8 @@ function pass(name: string, message: string): void {
  * validated system/driver error codes and known configuration locations. */
 function describeFailure(error: unknown): string {
   if (error instanceof CheckFailure) return error.message;
+  if (error instanceof DiagnosticPageLimitError)
+    return `${phase} failed (${error.code}): ${error.message}.`;
   const codes: string[] = [];
   let current = error;
   for (let i = 0; i < 5 && current instanceof Error; i++) {

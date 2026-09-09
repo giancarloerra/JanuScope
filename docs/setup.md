@@ -60,6 +60,8 @@ The default deadline is 90,000 milliseconds. `--timeout` changes the diagnostic 
 
 `--json` returns `ok` and a `checks` array with `name`, `status` (`pass`, `fail`, or `info`), and `message`. When discovery succeeds, `tools` contains `allowed` and `blocked` names; `policy` summarizes the configuration. Diagnostics withhold raw target stderr and server error text, retaining safe system, driver, or JSON-RPC codes where available. See `januscope check --help` for the current output contract.
 
+Tool discovery follows at most 100 `tools/list` pages. If the 100th page advertises another page, the diagnostic fails and reports the page limit; it does not report a partial tool list as complete.
+
 The check does not invoke backend tools, write audit or approval records, or edit configuration. Audit delivery, the existing approval state, and telemetry initialization/export are not checked. It does not establish that every permitted operation or redaction rule works. Starting the configured target, loading schema, or resolving a secret can contact the configured backend; package runners and remote bridges may download dependencies or require authentication.
 
 ## Prerequisites
@@ -512,19 +514,19 @@ The full event union is available in two forms, both shipped with the package, s
   ```
 - **JSON Schema (Draft 2020-12)**: validate each JSONL record with [Ajv CLI](https://github.com/ajv-validator/ajv-cli) and `ajv-formats`. Install both with `npm install -g ajv-cli ajv-formats`, then run:
   ```bash
-  # node_modules/januscope/schemas/audit-event.json, or mirror it in your pipeline.
   (
     set -eu
+    audit_schema_path="${audit_schema_path:-node_modules/januscope/schemas/audit-event.json}"
     audit_record_dir=$(mktemp -d "${TMPDIR:-/tmp}/januscope-audit.XXXXXX")
     trap 'rm -rf "$audit_record_dir"' EXIT
     while IFS= read -r line || [ -n "$line" ]; do
       printf '%s\n' "$line" > "$audit_record_dir/record.json"
       ajv --spec=draft2020 -c ajv-formats validate \
-        -s schemas/audit-event.json -d "$audit_record_dir/record.json"
+        -s "$audit_schema_path" -d "$audit_record_dir/record.json"
     done < my-audit.jsonl
   )
   ```
-  The loop stops at the first invalid record, including an invalid final line without a newline, and removes its temporary file on exit.
+  The default schema path assumes a local project installation. For a global installation or another layout, set `audit_schema_path` to the schema inside that installation before running the block. From a source checkout, use `audit_schema_path=schemas/audit-event.json`. The loop stops at the first invalid record, including an invalid final line without a newline, and removes its temporary file on exit.
 
 The event types are defined in `src/overlays/audit.ts`; the shipped JSON Schema describes the corresponding records.
 
