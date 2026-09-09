@@ -42,19 +42,34 @@ sqlGuard:
   readOnly: true
 
 instructions: |
-  READ-ONLY Aurora DSQL. The proxy wraps the MCP in its default
-  read-only mode (`--allow-writes` is intentionally NOT passed).
-  - `readonly_query` for SELECT / WITH queries; sqlGuard rejects
-    any statement containing INSERT / UPDATE / DELETE / DROP /
-    CREATE / ALTER / TRUNCATE / GRANT / etc.
-  - `transact` for multi-statement read transactions when you need
-    point-in-time consistency across several SELECTs; the MCP
-    rejects mutations in read-only mode.
-  - `get_schema <table>` to inspect schema before querying.
-  - `dsql_search_documentation` / `dsql_read_documentation` /
-    `dsql_recommend` for DSQL reference and best-practice guidance.
-  Do not request --allow-writes; the deployment posture is read-only
-  by design and any write attempt is refused at multiple layers.
+  STRICT POLICY. Read this carefully before every tool call.
+
+  READ-ONLY Aurora DSQL. Keep upstream read-only mode; never enable
+  --allow-writes. Use get_schema before readonly_query SELECT or WITH
+  queries. Use transact for consistent read transactions;
+  dsql_search_documentation, dsql_read_documentation and dsql_recommend
+  for guidance.
+
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
+
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, password_hash, api_key, apiKey, token,
+  secret, connection credentials, SSNs, card numbers and JWTs.
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

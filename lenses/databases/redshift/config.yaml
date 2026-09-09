@@ -30,18 +30,33 @@ sqlGuard:
   readOnly: true
 
 instructions: |
-  READ-ONLY Redshift. The proxy wraps the AWS Labs Redshift MCP
-  which runs in read-only mode by default.
-  - `list_clusters` to discover Redshift provisioned clusters and
-    Serverless workgroups your IAM principal has access to.
-  - `list_databases` / `list_schemas` / `list_tables` /
-    `list_columns` for hierarchical schema discovery.
-  - `execute_query` for SELECT / WITH queries; the proxy rejects
-    any statement containing INSERT / UPDATE / DELETE / DROP /
-    CREATE / ALTER / TRUNCATE / GRANT / etc.
-  Operations against multiple clusters in one session are
-  supported by passing different `cluster_identifier` values to
-  the tools.
+  STRICT POLICY. Read this carefully before every tool call.
+
+  READ-ONLY Redshift. Keep upstream read-only mode. Use list_clusters
+  for clusters or workgroups, then list_databases, list_schemas,
+  list_tables and list_columns. Use execute_query for SELECT or WITH
+  queries and cluster_identifier to select the intended cluster.
+
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
+
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, password_hash, api_key, apiKey, token,
+  secret, connection credentials, SSNs, card numbers and JWTs.
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

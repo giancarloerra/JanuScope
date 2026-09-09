@@ -74,7 +74,7 @@ export const postgresDriver: Driver = {
       for (const row of allowedRows) {
         const tableName = row.table_name;
         const schemaName = row.table_schema;
-        const tableComment = row.comment ?? null;
+        const tableComment = opts.includeComments === false ? null : (row.comment ?? null);
         const columns = await fetchColumns(client, tableName, schemaName, opts);
         const primaryKey = await fetchPrimaryKey(client, tableName, schemaName);
         const foreignKeys = await fetchForeignKeys(client, tableName, schemaName);

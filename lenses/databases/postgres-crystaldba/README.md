@@ -56,3 +56,5 @@ dbSchema:
 ## Recommended defence-in-depth
 
 Restricted MCP mode and `sqlGuard` add checks on the wrapped connection. Backend permissions must also prevent unwanted side effects, including those reachable through callable functions such as `SELECT schema.delete_all()`. See the [SQL limitations](../../../docs/setup.md#faq).
+
+Read-only access does not prevent sensitive-field disclosure. Aliases, encodings and calculated values can avoid the preset's output matches. For strict source-field isolation, use a dedicated role with approved column grants or vetted views, including a review of inherited, `PUBLIC` and function permissions. The [tested PostgreSQL example](../../../docs/sensitive-data.md) preserves allowed analytics while refusing protected-source reads. This is an optional stricter deployment; it also denies aggregates and presence checks that reference protected columns.

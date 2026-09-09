@@ -311,6 +311,8 @@ Field rules cover structured response properties and recognized JSON and Python-
 
 `applyTo: text` is the default: regex rules process text blocks, while field rules also inspect structured properties. The legacy `fields` setting retains that behavior. `all` also processes other string values throughout the result. For valid JSON-RPC error responses, redaction processes message and data strings regardless of `applyTo`. Successful redaction preserves the numeric error code and response ID. These rules do not inspect image bytes or guarantee detection of arbitrary formats and unmatched secrets.
 
+Field rules match output names, not database provenance. Aliases, encodings, fragments and calculated values can remove the original name or pattern without causing a parser error. `sqlGuard` does not enforce sensitive-column access. Use [backend column permissions or vetted views](./sensitive-data.md) when protected fields must not be evaluated or disclosed.
+
 If required redaction fails, the original payload is withheld. Messages with an `id` produce JSON-RPC error `-32603` for the side awaiting a response: string, numeric and `null` IDs are retained, while other ID types become `null`. Messages without an `id`, including notifications, are dropped without an error response. Safe diagnostics identify the failing overlay and error category without copying the sensitive payload. A later valid response can still be processed on the same connection.
 
 ### Credential-vault references (optional)
@@ -348,7 +350,7 @@ These are the two overlays that **add context to the tool descriptions the LLM s
 **Walk-through, `dbSchema` against Postgres**
 
 1. **Lens load.** JanuScope reads `config.yaml`. The `dbSchema:` block supplies the driver, connection string, target tools, and optional PostgreSQL `schemas`. The schema text itself is _not_ in the YAML. Both normal startup and the setup checker introspect the configured schemas, defaulting to `public` when the option is omitted.
-2. **Startup introspection.** JanuScope opens a real Postgres connection using the recipe's `connectionString` and runs a few `information_schema` queries. It pulls table names, columns, types, foreign keys, and (if `includeComments: true`) any SQL comments. It runs at startup; latency depends on the database and connection.
+2. **Startup introspection.** JanuScope opens a real Postgres connection using the recipe's `connectionString` and queries database catalogs. It pulls table names, columns, types, defaults, foreign keys, and (unless `includeComments: false`) table and column comments. It runs at startup; latency depends on the database and connection.
 3. **Serialisation.** The introspection result is formatted into a readable text blob (Markdown by default). The generated blob is held in memory and then sent to the MCP client as part of the tool description. The client can retain it or send it to a model provider.
 4. **MCP handshake.** The MCP client (Claude / Cursor / etc.) sends `tools/list` to JanuScope. JanuScope forwards it to the real Postgres MCP. The MCP returns its tool list with the standard descriptions.
 5. **Injection.** Before forwarding the response back to the client, the `dbSchema` overlay rewrites it. For each tool name in `injectInto:` (typically `execute_sql`), the schema blob is appended to that tool's `description` field.
@@ -394,15 +396,15 @@ The runtime path is identical to step 4-6 above: on the next `tools/list` respon
 
 Because JanuScope is a stdio proxy spawned as a child of your MCP client, **its lifecycle follows the client connection**. It has no HTTP `/health` endpoint. Optional audit logs and approval fingerprints persist after exit. It also means the usual process-supervisor patterns don't apply directly. Here's the shape of the failure modes and what to do:
 
-- **Unhandled error inside a JanuScope overlay.** The engine installs scoped `unhandledRejection` and `uncaughtException` handlers for the duration of `runOverlay()`. Before Node exits, a single structured line lands on stderr:
+- **Uncaught exception or fatal unhandled rejection.** JanuScope observes Node's `uncaughtExceptionMonitor` event and writes a runtime diagnostic. It does not install handlers that suppress Node's normal fatal behavior. With Node's default error policy, the process exits nonzero and the MCP connection closes. The default diagnostic writes synchronously before exit:
 
+  ```text
+  [januscope:runtime] 2026-01-01T… error: unhandledRejection {"message":"…","stack":"…"}
   ```
-  [januscope:runtime] 2026-04-20T… error: unhandledRejection {"message":"…","stack":"…"}
-  ```
 
-  Your client will see a broken pipe and surface "MCP server disconnected." The diagnostic line is how you tell _which_ side died, without it you'd be guessing between JanuScope, the wrapped MCP, and the client itself.
+  An embedding application's handlers, capture callback and Node rejection flags retain their own behavior. A handled error therefore does not automatically disconnect that application's MCP sessions. JanuScope removes its monitor when a session finishes. When Node emits its `exit` event, each active bridge sends `SIGKILL` to its owned direct target. Forced OS termination, abort modes such as `--abort-on-uncaught-exception`, and failures thrown inside host fatal-error handlers can skip these cleanup hooks. This does not promise cleanup of independently daemonized descendants or a final asynchronous audit/telemetry flush. Runtime diagnostics can contain the original error message and stack and should be treated as sensitive.
 
-- **The wrapped MCP crashes or hangs.** The stdio transport escalates in three stages, _t+2s_ SIGTERM, _t+5s_ SIGKILL, _t+10s_ give up, and logs at every stage. JanuScope exits cleanly after the child is confirmed dead or the deadline hits. Reconnection depends on the MCP client. Reconnect or restart the server from the client to launch a fresh process pair.
+- **The wrapped MCP crashes or a connection is stopped.** Graceful shutdown first awaits overlay stop hooks. After those hooks settle, the transport closes target stdin and schedules SIGTERM after two seconds, SIGKILL after five seconds, and a ten-second wait deadline. A hanging stop hook can delay this sequence; these are not per-request timeouts or a general hang detector. Reconnection depends on the MCP client. Reconnect or restart the server from the client to launch a fresh process pair.
 
 - **Stream errors (client stdin / target stdout).** Logged as `warn` and the pipeline closes gracefully. The `done` promise resolves; runtime exits with code 0.
 
@@ -616,8 +618,8 @@ Neither controls separate terminal tools or other MCP connections. Backend permi
 **What happens if the LLM tries to bypass JanuScope by running `redis-cli` / `psql` / `gh` from the terminal?** Nothing JanuScope can stop directly, the terminal is a sibling tool surface in the agent host (Copilot, Cursor, Claude Code), not a wrapped MCP. The proxy only sees JSON-RPC traffic to the MCP it spawned. This is by design and documented in [SECURITY.md](../SECURITY.md#three-layer-model) under the **three-layer model**:
 
 1. **Hide**: `block` removes write tools from `tools/list` so the model never sees them. Direct calls to a blocked name are refused even if the client already knows or guesses it. JanuScope provides this.
-2. **Advise**: `instructions` (with `position: prepend`) and `contextInjection` push a SURFACE BOUNDARY paragraph into the descriptions the model reads, explicitly forbidding terminal / vendor-CLI / sibling-MCP bypass. JanuScope provides this. **It is advice, not enforcement**, observed live against VS Code Copilot, the model receives the policy text and can recite it when asked, yet still proposes terminal bypasses on its own initiative for some prompts.
-3. **Enforce at the data path**: a credential that physically cannot mutate, configured upstream of JanuScope (read-only DB role, read-only Upstash token, fine-grained read-only PAT, Stripe `rk_*`). **JanuScope cannot provide this layer.** It is the actual barrier when layers 1 and 2 do not hold.
+2. **Advise**: `instructions` (with `position: prepend`) and `contextInjection` add explicit bypass rules to the descriptions the model reads, explicitly forbidding terminal / vendor-CLI / sibling-MCP bypass. JanuScope provides this. **It is advice, not enforcement**, observed live against VS Code Copilot, the model receives the policy text and can recite it when asked, yet still proposes terminal bypasses on its own initiative for some prompts.
+3. **Enforce at the data path**: a credential that excludes prohibited operations and access to protected data, configured at the backend (restricted DB role, scoped API token, fine-grained read-only PAT). Read-only access alone does not exclude sensitive values. **JanuScope cannot provide this layer.** It is the actual barrier when layers 1 and 2 do not hold.
 
 For demo / non-production use, layers 1 and 2 alone are usually enough, your data is throwaway, the agent is supervised. **For production deployments, layer 3 is mandatory.** Each bundled lens README has a `Prerequisites` section documenting the recommended layer-3 credential for that backend; treat it as a deployment requirement, not a suggestion.
 
@@ -666,6 +668,8 @@ Backstop: use a database role whose permissions exclude writes, DDL, administrat
 **What is `mcp-remote` and do I need to install it?** It is the external bridge used by the remote presets. `npx -y mcp-remote <url>` fetches and starts it. The bridge's network connections, authentication, and credential storage follow its own [documentation](https://github.com/geelen/mcp-remote). JanuScope does not make a remote service local or replace its authentication.
 
 ## Historical benchmarks
+
+The [new synthetic comparisons](./benchmarks.md) measure instruction length, correctness, model behavior and actual enforcement separately. The historical multi-question harness below reset question history; its cached-session result does not establish savings for a growing retained conversation.
 
 These tables retain the previously reported Claude Sonnet 4.5/Postgres results, with medians from four runs per prompt. They describe that specific historical harness and database. The original scripts and raw runs are not included in the published repository, so these figures are not a reproducible benchmark for the current Postgres MCP Pro quick start.
 

@@ -33,13 +33,34 @@ block:
   - execute_entity
 
 instructions: |
-  READ-ONLY. This database is wrapped behind JanuScope.
-  - Use `describe_entities` first to discover what is exposed.
-  - Use `read_records` for queries (OData filter, orderby, paging).
-  - All write tools (create / update / delete / execute_entity) are
-    blocked at the proxy AND should also be denied at the DAB role
-    level via per-entity permissions in `dab-config.json`.
-  - The lens audits every tool call to ~/mcp-audit-mssql.jsonl.
+  STRICT POLICY. Read this carefully before every tool call.
+
+  READ-ONLY SQL Server through Azure DAB. Use describe_entities, then
+  read_records with OData filters, orderby and paging. Keep write
+  operations denied in DAB per-entity role permissions as well as the
+  proxy block list.
+
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
+
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, passwordHash, password_hash, apiKey,
+  api_key, token, ssn, creditCard, credit_card (including case
+  variants).
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

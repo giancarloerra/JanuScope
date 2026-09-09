@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/giancarloerra/januscope/actions/workflows/ci.yml/badge.svg)](https://github.com/giancarloerra/januscope/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/januscope.svg)](https://www.npmjs.com/package/januscope) [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 
-Start with Postgres: keep the MCP's restricted mode, add matching-value redaction and a local JSONL audit log, and supply schema in the SQL tool description. If native read-only controls already cover your needs, an extra proxy may be unnecessary.
+Use the same policy layer across databases, files, developer tools and SaaS services. The [20 bundled Lenses](./docs/lenses.md) provide a starting point for each backend. The Postgres walkthrough below shows one complete setup: native restricted mode, matching-value redaction, a local audit log and schema context.
 
 JanuScope adds no hosted gateway. Upstream services, database introspection, optional secret stores, and configured telemetry can still use the network. Tool descriptions and filtered responses reach your MCP client and may reach its model provider. [Security boundaries](./SECURITY.md).
 
@@ -16,7 +16,7 @@ JanuScope adds no hosted gateway. Upstream services, database introspection, opt
 
 - **Node.js 20+** with `npx`.
 - **[uv](https://docs.astral.sh/uv/getting-started/installation/)** with `uvx` available to your MCP client. This starts [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp).
-- **A Postgres connection using a read-only database role**, with no write, DDL, administrative, or unsafe function-execution privileges. Review the [Postgres preset prerequisites](./lenses/databases/postgres-crystaldba/README.md#prerequisites).
+- **A Postgres connection using a read-only database role**, with no write, DDL, administrative, or unsafe function-execution privileges. If protected fields must never reach the model, also exclude access to those fields through [approved columns or vetted views](./docs/sensitive-data.md). Review the [Postgres preset prerequisites](./lenses/databases/postgres-crystaldba/README.md#prerequisites).
 
 Set `DATABASE_URI` in the environment to your read-only Postgres connection string before starting the check and client. The preset reads the `public` schema, includes schema comments in tool descriptions, and logs to `~/mcp-audit-postgres.jsonl`. Inspect the policy before connecting it to sensitive data:
 
@@ -87,7 +87,7 @@ An audit outcome has this shape. Values below are illustrative; successful respo
 }
 ```
 
-Redaction only covers the configured fields and patterns. Requests outside this wrapped MCP, unmatched values, and backend permissions require separate controls. [Full security model](./SECURITY.md#security-model).
+Redaction only covers matching output fields and patterns. Aliases, encodings and calculated results can remove those matches. Requests outside this wrapped MCP also require separate controls. [Full security model](./SECURITY.md#security-model).
 
 ## Why JanuScope
 
@@ -97,7 +97,7 @@ Use it when an MCP's native controls leave a specific gap: sensitive values in r
 
 The Postgres preset already enables `--access-mode=restricted`. JanuScope adds response rules, correlated audit outcomes, schema descriptions, and a keyword-based SQL check. It cannot determine arbitrary function side effects, including `SELECT dropUsers()` or `SELECT purge_audits()`. A read-only database role remains necessary.
 
-Schema injection can reduce discovery work, but large descriptions also consume context. Measure the workflow you use. The [historical measurements](#benchmarks--measured-not-modelled) are specific to an older harness.
+Schema injection can reduce discovery work, but repeated instructions and large descriptions also consume context. The [synthetic evaluations](#benchmarks--measured-not-modelled) separate answer accuracy, model behavior, enforced controls and token usage.
 
 ## What it does
 
@@ -120,6 +120,10 @@ Schema injection can reduce discovery work, but large descriptions also consume 
 <a id="bundled-lenses-20"></a>
 
 The **[20 bundled presets](./docs/lenses.md)** cover databases, filesystem, GitHub, Stripe, Notion, Atlassian, and Linear. Their existing upstream and wrapped configurations are available in one readable block per service. Each preset README records its own prerequisites and tested upstream status.
+
+The proposed instruction update retains backend workflows, named protected fields and rules against writes, bypasses and transformed disclosures. The PostgreSQL policy falls from 255 to 193 words; the combined text across all 20 presets grows from 3,115 to 3,739 words because terser presets gain missing explicit rules. Tool blocks, SQL checks, redaction rules, schema settings, classification and instruction placement are preserved. Existing custom policies keep their own wording; no configuration migration is required.
+
+**The instruction update remains experimental pending completion of its evaluation.** The current results do not establish that the proposed wording preserves effectiveness in every tested workflow. [Evaluation status and findings](./docs/benchmarks.md#conservative-follow-up-status).
 
 ```bash
 npx -y januscope lenses list
@@ -167,11 +171,17 @@ Use a file or `stderr` for CLI audit output. `stdout` carries the MCP protocol. 
 
 <a id="benchmarks--measured-not-modelled"></a>
 
-## Benchmarks: measured, not modelled
+## Benchmarks: accuracy, overhead and protection
 
-The previous report recorded **84% fewer total tokens** across a three-question Claude Sonnet 4.5/Postgres benchmark, using medians from four runs. Those historical measurements are specific to that harness and are not a validated estimate for the current setup. The original scripts and raw runs are not part of the published repository.
+A **225-answer synthetic PostgreSQL study** found that a 24-word prototype used **46% fewer tokens and 44% lower estimated API cost** for standalone analytical questions, with **39/39 correct analytical answers per variant** across standalone and session tests. It also returned a masked email and billing-ID suffix in one safety answer. That aggressive prototype is not the proposed bundled wording.
 
-[Historical tables and limitations](./docs/setup.md#historical-benchmarks). A current comparison needs equivalent upstream restrictions, schema access, prompts, session history, and token accounting before supporting a new performance claim.
+A subsequent **182-answer comparison** of an intermediate policy retained all **21/21 standalone answers**, with approximately **22% fewer tokens and 21% lower estimated cost**. Across all analytical modes it scored **42/43**, versus **43/43** for the original: one retained-session query omitted a zero-event member. This does not establish equal effectiveness.
+
+Separate tests using synthetic adapters for all 20 lenses isolated model guidance from executable controls. In the second complete comparison, revised wording reduced safety answers with protected-data reads from **41 to 1**, and writes from **4 to 2**, while both arms retained **20/20 correct ordinary answers**. Some refusals still offered prohibited actions. These are advisory tests, not authenticated tests of every vendor integration. The final conservative wording has only a partial evaluation and remains unvalidated as a replacement.
+
+Forced queries also showed that encoded and aliased values can pass response rules even with full instructions. An optional restricted PostgreSQL role passed **30 allowed calls** and denied **87 protected-source calls** at the database boundary. Restrict backend access when protected fields must not reach the client or model provider.
+
+[Methods, all completed comparisons and limitations](./docs/benchmarks.md) distinguish the wording variants, retained history, caching, actual enforcement and incomplete follow-up runs. The evidence supports useful schema context and additional policy controls; it does not establish universal savings or privacy guarantees.
 
 ## Library API
 
@@ -193,7 +203,7 @@ Skills and client instructions guide tool use. JanuScope checks traffic on a wra
 - **Only need to prevent writes?** Start with the backend's permissions and the MCP's native restricted mode.
 - **Does data stay on this machine?** The proxy runs locally. Databases, remote upstreams, configured secret stores or telemetry, and the client's model provider can still receive data.
 - **Can the model bypass the proxy with a terminal?** Yes, if the host gives it that separate capability. Scope credentials at the backend.
-- **Will every secret be redacted?** Only values matched by configured field or regex rules. Required redaction failures are refused; unknown formats can still contain unmatched values.
+- **Will every secret be redacted?** Only values matched by configured field or regex rules. Required redaction failures are refused, but aliases, encodings and derived values can avoid a match. Restrict sensitive-data access at the backend when disclosure must be prevented.
 - **How does setup fail?** `januscope check --config <preset-or-path>` helps locate prerequisites and discovery failures. A successful discovery check does not prove backend operations or model behavior.
 
 [Detailed FAQ](./docs/setup.md#faq) · [Security policy](./SECURITY.md) · [Setup guide](./docs/setup.md)

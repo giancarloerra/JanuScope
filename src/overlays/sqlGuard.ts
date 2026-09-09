@@ -13,12 +13,14 @@
  *   - `mode: "allowlist"` (DEFAULT, RECOMMENDED). Reject any
  *     statement whose leading keyword is not on the read-only
  *     allowlist (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE, VALUES,
- *     PRAGMA, TABLE). Robust against function-call mutation
- *     (SELECT dropUsers(1)), against comment-hidden writes
- *     (DROP/**​/TABLE users), and against false positives on
+ *     PRAGMA, TABLE). Rejects known dangerous function patterns
+ *     and comment-hidden writes (DROP/**​/TABLE users), while avoiding
+ *     false positives on
  *     SELECT ... FOR UPDATE or string literals containing write
  *     keywords. Multi-statement inputs are rejected unless every
- *     statement starts with a read verb.
+ *     statement starts with a read verb. Arbitrary user-defined
+ *     function effects (SELECT dropUsers(1)) and sensitive-column
+ *     access require backend permissions; this is a keyword scanner.
  *
  *   - `mode: "denylist"` (LEGACY). Keyword-blacklist match with
  *     comment collapsing and string-literal blanking. Preserved

@@ -8,6 +8,7 @@
  * Node process (e.g., a test harness or a custom MCP gateway).
  */
 
+import { writeSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import { createAuditOverlay } from "./overlays/audit.js";
 import { createBlockOverlay } from "./overlays/block.js";
@@ -279,28 +280,31 @@ export async function runOverlay(options: RunOverlayOptions): Promise<void> {
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
 
-  // Last-chance diagnostics. A silent crash (no structured log line) is
-  // the worst failure mode for a sidecar proxy between an LLM and a
-  // live database — the user sees a broken pipe and has no idea whether
-  // JanuScope or the target MCP died. Emit a structured error first,
-  // then let Node's default handler take over (Node 20+ exits on
-  // unhandled rejection by default; we do not suppress that).
-  const onUnhandledRejection = (reason: unknown): void => {
-    log("error", "runtime", "unhandledRejection", errorInfo(reason));
+  // Observe failures without replacing Node's fatal policy or a host's
+  // handlers. Native fatal exit cannot wait for asynchronous log writes.
+  const fatalLog = options.log ?? defaultLogger(true);
+  const onFatalError = (err: Error, origin: NodeJS.UncaughtExceptionOrigin): void => {
+    try {
+      fatalLog("error", "runtime", origin, errorInfo(err));
+    } catch (logError) {
+      try {
+        defaultLogger(true)("error", "runtime", origin, {
+          ...errorInfo(err),
+          diagnosticError: errorInfo(logError),
+        });
+      } catch {
+        // An unavailable diagnostic sink must not change the host's error policy.
+      }
+    }
   };
-  const onUncaughtException = (err: Error): void => {
-    log("error", "runtime", "uncaughtException", errorInfo(err));
-  };
-  process.on("unhandledRejection", onUnhandledRejection);
-  process.on("uncaughtException", onUncaughtException);
+  process.on("uncaughtExceptionMonitor", onFatalError);
 
   try {
     await bridge.done;
   } finally {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
-    process.off("unhandledRejection", onUnhandledRejection);
-    process.off("uncaughtException", onUncaughtException);
+    process.off("uncaughtExceptionMonitor", onFatalError);
     // Flush any buffered OTel spans before Node exits. The no-op
     // tracer's shutdown resolves immediately; the real tracer drains
     // its BatchSpanProcessor — skipping this drops the last batch.
@@ -447,14 +451,12 @@ export function buildOverlays(config: OverlayConfig): Overlay[] {
   return overlays;
 }
 
-function defaultLogger(): LogFn {
+function defaultLogger(synchronous = false): LogFn {
   return (level, scope, message, extra) => {
     const timestamp = new Date().toISOString();
     const prefix = `[januscope:${scope}] ${timestamp} ${level}:`;
-    if (extra !== undefined) {
-      process.stderr.write(`${prefix} ${message} ${JSON.stringify(extra)}\n`);
-    } else {
-      process.stderr.write(`${prefix} ${message}\n`);
-    }
+    const line = `${prefix} ${message}${extra === undefined ? "" : ` ${JSON.stringify(extra)}`}\n`;
+    if (synchronous) writeSync(process.stderr.fd, line);
+    else process.stderr.write(line);
   };
 }

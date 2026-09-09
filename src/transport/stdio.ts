@@ -56,6 +56,20 @@ export function startStdioBridge(options: StdioBridgeOptions): StdioBridge {
     ...(target.cwd ? { cwd: target.cwd } : {}),
   }) as ChildProcessWithoutNullStreams;
 
+  // An actual host exit cannot await graceful teardown. Terminate the
+  // owned direct child even if it ignores EOF; observing a handled host
+  // exception alone must not interrupt an embedded session.
+  const onHostExit = (): void => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  };
+  // Run before existing host exit handlers, which may themselves throw.
+  process.prependOnceListener("exit", onHostExit);
+  const removeExitHook = (): void => {
+    process.off("exit", onHostExit);
+  };
+  child.once("exit", removeExitHook);
+  child.once("close", removeExitHook);
+
   let stopped = false;
 
   const forwardToTarget = (msg: JsonRpcMessage): void => {

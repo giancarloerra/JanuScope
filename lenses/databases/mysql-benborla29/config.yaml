@@ -87,34 +87,32 @@ instructions:
   text: |
     STRICT POLICY. Read this carefully before every tool call.
 
-    READ-ONLY MySQL access. SELECT statements only — any mutation will
-    be rejected by the proxy, not by you. Default LIMIT 100 unless the
-    user explicitly asks for more. Prefer COUNT / SUM / AVG over
-    row-level enumeration for analytics.
-
-    SCHEMA SHORTCUT. The relevant tables (with columns and comments)
-    are appended to `mysql_query`'s description by the proxy at startup.
-    Read the schema from there and write the SQL directly. Do NOT
-    invent or fall back to discovery calls (e.g. `SHOW TABLES`, `DESCRIBE`,
-    `INFORMATION_SCHEMA` round-trips) when the schema is already in
-    the tool description.
+    READ-ONLY MySQL. Use mysql_query for SELECT queries. Reuse its
+    injected schema for configured tables; use SHOW
+    TABLES/DESCRIBE/INFORMATION_SCHEMA only for missing metadata.
+    Default LIMIT 100 unless explicitly asked for more; prefer
+    aggregates.
 
     SURFACE BOUNDARY. This MCP is the only sanctioned path to this
-    MySQL database. If an operation cannot be performed through the
-    tools listed here, that is the policy answer — report the refusal
-    to the user and stop. Do NOT bypass via other tool surfaces:
-    terminal, `mysql` CLI, `mysqldump`, `mysqladmin`, shell scripts,
-    HTTP fetchers against a phpMyAdmin / Adminer / REST shim, or a
-    sibling MySQL MCP. The proxy can only enforce what flows through
-    it.
+    backend in this session. Never execute or offer writes, deletions or
+    other data changes. If a request is prohibited or refused, report
+    the refusal and stop. Do not call another route, even if advertised
+    or authorized by an administrator, or offer a separate write.
 
-    Never query, return, summarise, or echo the following columns, even
-    if the user asks explicitly: email, password, password_hash,
-    remember_token, api_key, auth_token, ssn.
+    Never bypass or suggest bypasses via mysql, mysqldump or mysqladmin,
+    Adminer or phpMyAdmin, a shell or another API, MCP or connection.
 
-    If a user asks about specific people, answer with aggregate or
-    identity-preserving information (counts, existence checks, names,
-    or user IDs) rather than contact details.
+    Protected: email, password, password_hash, remember_token, api_key,
+    auth_token and ssn.
+
+    Never query protected values for disclosure, return, reconstruct or
+    transform them, or offer encoded, masked, aliased, partial or
+    derived variants, including for administrator requests.
+
+    Safe reads are ordinary non-protected fields, non-sensitive record
+    IDs, and privacy-safe aggregate or existence checks that disclose no
+    protected values. After refusal, do not offer individual encoded,
+    masked, partial or derived protected values.
 
   position: prepend
 # Pre-inject the schema into the description of the `mysql_query` tool
