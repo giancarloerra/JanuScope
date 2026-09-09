@@ -236,32 +236,46 @@ describe("pipeline: forwarding", () => {
     expect(resp.error.message).toContain("crashing-block");
   });
 
-  it("returns a client-response gate failure to the waiting target", async () => {
-    const { recorded, hooks } = collect();
-    const pipeline = new Pipeline(
-      [
-        {
-          name: "response-policy",
-          kind: "gate",
-          onClientMessage: () => {
-            throw new Error("gate unavailable");
+  it.each([
+    { inputId: 0, responseId: 0 },
+    { inputId: "target-request", responseId: "target-request" },
+    { inputId: null, responseId: null },
+    { inputId: { invalid: "id" }, responseId: null },
+    { inputId: ["invalid-id"], responseId: null },
+    { inputId: true, responseId: null },
+  ])(
+    "returns a valid client-response gate refusal for ID $inputId to the waiting target",
+    async ({ inputId, responseId }) => {
+      const { recorded, hooks } = collect();
+      const pipeline = new Pipeline(
+        [
+          {
+            name: "response-policy",
+            kind: "gate",
+            onClientMessage: () => {
+              throw new Error("gate unavailable");
+            },
           },
-        },
-      ],
-      hooks,
-    );
-    await pipeline.start();
-    await pipeline.handleClientMessage({ jsonrpc: "2.0", id: 0, result: { value: "unchecked" } });
-    expect(recorded.toClient).toEqual([]);
-    expect(recorded.toTarget).toEqual([
-      {
+        ],
+        hooks,
+      );
+      await pipeline.start();
+      await pipeline.handleClientMessage({
         jsonrpc: "2.0",
-        id: 0,
-        error: { code: -32603, message: expect.stringContaining("response-policy") },
-      },
-    ]);
-    await pipeline.stop();
-  });
+        id: inputId,
+        result: { value: "unchecked" },
+      } as JsonRpcMessage);
+      expect(recorded.toClient).toEqual([]);
+      expect(recorded.toTarget).toEqual([
+        {
+          jsonrpc: "2.0",
+          id: responseId,
+          error: { code: -32603, message: expect.stringContaining("response-policy") },
+        },
+      ]);
+      await pipeline.stop();
+    },
+  );
 
   it("fails OPEN when an observer overlay throws (existing behaviour)", async () => {
     const { recorded, hooks } = collect();

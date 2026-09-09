@@ -70,3 +70,62 @@ it.each([
     }
   },
 );
+
+it("refuses a malformed request ID with a valid error and continues serving stdio requests", async () => {
+  const clientIn = new PassThrough();
+  const clientOut = new PassThrough();
+  const pipeline = new Pipeline(
+    [
+      {
+        name: "request-policy",
+        kind: "gate",
+        onClientMessage(message) {
+          if ("method" in message && message.method === "tools/call") {
+            throw new Error("synthetic policy failure");
+          }
+          return { kind: "forward", msg: message };
+        },
+      },
+    ],
+    {
+      onForwardToTarget: (message) => bridge.forwardToTarget(message),
+      onForwardToClient: (message) => bridge.forwardToClient(message),
+      log: () => {},
+    },
+  );
+  await pipeline.start();
+  const bridge: StdioBridge = startStdioBridge({
+    target: { command: process.execPath, args: ["-e", SERVER] },
+    pipeline,
+    clientIn,
+    clientOut,
+    log: () => {},
+  });
+  let timer: ReturnType<typeof setTimeout>;
+  const responses = new Promise<JsonRpcMessage[]>((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("stdio response deadline exceeded")), 3000);
+    const messages: JsonRpcMessage[] = [];
+    const decoder = new FrameDecoder((message) => {
+      messages.push(message);
+      if (messages.length === 2) resolve(messages);
+    }, reject);
+    clientOut.on("data", (chunk: Buffer) => decoder.push(chunk));
+  });
+  try {
+    clientIn.write('{"jsonrpc":"2.0","id":{"invalid":"id"},"method":"tools/call"}\n');
+    clientIn.write(encodeFrame({ jsonrpc: "2.0", id: 0, method: "ping" }));
+    expect(await responses).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32603, message: expect.stringContaining("request-policy") },
+      },
+      { jsonrpc: "2.0", id: 0, result: { notifications: 0 } },
+    ]);
+  } finally {
+    clearTimeout(timer!);
+    clientIn.end();
+    await bridge.stop("test complete");
+    await pipeline.stop();
+  }
+});

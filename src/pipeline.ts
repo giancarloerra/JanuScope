@@ -214,8 +214,14 @@ export class Pipeline {
             rootSpan.setAttribute("januscope.outcome", "gate_failure");
             rootSpan.setStatus("error", `gate overlay '${overlay.name}' failed`);
             if ("id" in current) {
+              const id =
+                typeof current.id === "string" ||
+                typeof current.id === "number" ||
+                current.id === null
+                  ? current.id
+                  : null;
               const response = makeInternalErrorResponse(
-                current.id,
+                id,
                 `januscope: gate overlay '${overlay.name}' failed; message refused for safety.`,
               );
               if (isRequestMessage(current)) this.hooks.onForwardToClient(response);
