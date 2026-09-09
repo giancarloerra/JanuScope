@@ -50,23 +50,7 @@ async function expectWorkerTreeStopped(workerPid: number, targetPids?: string): 
     throw new Error("Invalid diagnostic fixture target PIDs");
   }
   const pids = [workerPid, ...recorded];
-  await expect
-    .poll(
-      () =>
-        pids.every((pid) => {
-          const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
-            encoding: "utf8",
-          });
-          if (result.error) throw result.error;
-          if ((result.status !== 0 && result.status !== 1) || result.stderr.trim() !== "") {
-            throw new Error("Could not inspect diagnostic fixture process state");
-          }
-          const status = result.stdout.trim();
-          return status === "" || status.startsWith("Z");
-        }),
-      { timeout: 3000 },
-    )
-    .toBe(true);
+  await expect.poll(() => pids.every(processStopped), { timeout: 3000 }).toBe(true);
   // Once termination is verified, do not signal a stale process-group ID again.
   const tracked = workerGroups.indexOf(workerPid);
   if (tracked !== -1) workerGroups.splice(tracked, 1);
@@ -129,20 +113,29 @@ function approvalMetadata(directory: string): string {
   return `${stat.size}:${stat.mtimeMs}`;
 }
 
-function assertProcessesStopped(path: string): void {
-  const pids = JSON.parse(readFileSync(path, "utf8")) as number[];
-  for (const pid of pids) {
-    const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
-      encoding: "utf8",
-    });
-    if (result.error) throw result.error;
-    if ((result.status !== 0 && result.status !== 1) || result.stderr.trim() !== "") {
-      throw new Error("Could not inspect diagnostic fixture process state");
-    }
-    const status = result.stdout.trim();
-    // A container's PID 1 may retain an already terminated zombie briefly.
-    expect(status === "" || status.startsWith("Z")).toBe(true);
+function processStopped(pid: number): boolean {
+  const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  if (result.error) throw result.error;
+  if ((result.status !== 0 && result.status !== 1) || result.stderr.trim() !== "") {
+    throw new Error("Could not inspect diagnostic fixture process state");
   }
+  const status = result.stdout.trim();
+  // A container's PID 1 may retain an already terminated zombie briefly.
+  return status === "" || status.startsWith("Z");
+}
+
+async function assertProcessesStopped(path: string): Promise<void> {
+  const pids: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (
+    !Array.isArray(pids) ||
+    pids.length !== 2 ||
+    !pids.every((pid: unknown) => typeof pid === "number" && Number.isSafeInteger(pid) && pid > 1)
+  ) {
+    throw new Error("Invalid diagnostic fixture target PIDs");
+  }
+  await expect.poll(() => pids.every(processStopped), { timeout: 3000 }).toBe(true);
 }
 
 const HANGING_TARGET = `const fs=require('node:fs');const cp=require('node:child_process');const descendant=cp.spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(process.argv[1],JSON.stringify([process.pid,descendant.pid]));process.on('SIGTERM',()=>{});setInterval(()=>{},1000);`;
@@ -357,7 +350,7 @@ describe("check CLI real process boundaries", () => {
       expect(result.code).toBe(1);
       expect(result.report.checks.at(-1)?.name).toBe("timeout");
       expect(Date.now() - start).toBeLessThan(4000);
-      assertProcessesStopped(pids);
+      await assertProcessesStopped(pids);
     },
   );
 
@@ -399,7 +392,7 @@ describe("check CLI real process boundaries", () => {
       const result = await invocation.result;
       expect(result.code).toBe(signal === "SIGINT" ? 130 : 143);
       expect((JSON.parse(result.stdout) as CheckReport).checks.at(-1)?.name).toBe("cancelled");
-      assertProcessesStopped(pids);
+      await assertProcessesStopped(pids);
     },
   );
 
@@ -417,7 +410,7 @@ describe("check CLI real process boundaries", () => {
       );
       const result = await check(fixture.path);
       expect(result.code).toBe(0);
-      assertProcessesStopped(pids);
+      await assertProcessesStopped(pids);
     },
   );
 

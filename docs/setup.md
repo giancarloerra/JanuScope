@@ -56,6 +56,8 @@ npx -y januscope check --config /absolute/path/to/policy.yaml --timeout 30000 --
 
 Run the check with the same environment and working directory as the MCP client. It validates the policy, required variables, target executable and working directory, and dependencies used by the diagnostic. It performs MCP initialization and tool discovery, then passes the discovered list through the configured response pipeline. Database schema loading and supplied context are checked where enabled. The report lists allowed and blocked live tools and summarizes SQL filtering, redaction, audit, and approval settings.
 
+Setup checks and live approval probes accept individual messages and JSON-RPC batches, answer server `ping` requests, and leave notifications unanswered.
+
 The default deadline is 90,000 milliseconds. `--timeout` changes the diagnostic deadline; bounded child-process cleanup follows if it expires. Exit status `0` means the diagnostic passed, `1` means a diagnostic failed, and `2` means invalid command-line arguments. Cancellation exits with `130` for SIGINT or `143` for SIGTERM.
 
 `--json` returns `ok` and a `checks` array with `name`, `status` (`pass`, `fail`, or `info`), and `message`. When discovery succeeds, `tools` contains `allowed` and `blocked` names; `policy` summarizes the configuration. Diagnostics withhold raw target stderr and server error text, retaining safe system, driver, or JSON-RPC codes where available. See `januscope check --help` for the current output contract.
