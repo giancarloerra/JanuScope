@@ -46,6 +46,13 @@ function makeInternalErrorResponse(id: JsonRpcId, message: string): JsonRpcMessa
   return makeErrorResponse(id, RpcErrorCode.InternalError, message);
 }
 
+/** Classify gate failures without exposing request or response text from the exception. */
+function classifyGateFailure(err: unknown): string {
+  if (err instanceof RangeError) return "RangeError";
+  if (err instanceof TypeError) return "TypeError";
+  return "processing error";
+}
+
 export interface OverlayContext {
   /** Write a diagnostic message to stderr, prefixed with overlay name. */
   log: (level: "info" | "warn" | "error", message: string, extra?: unknown) => void;
@@ -200,9 +207,6 @@ export class Pipeline {
         try {
           result = await overlay.onClientMessage(current, this.contextFor(overlay));
         } catch (err) {
-          span.recordError(err);
-          span.end();
-          this.hooks.log("error", overlay.name, "client overlay threw", errorInfo(err));
           // Fail policy depends on overlay kind. "gate" overlays enforce
           // a security boundary (block, sqlGuard); if they crash on a
           // malformed payload, continuing would forward the unchecked
@@ -211,8 +215,15 @@ export class Pipeline {
           // "observer" overlays enhance but do not gate; a crash there
           // should not break the caller.
           if (overlay.kind === "gate") {
+            const failure = classifyGateFailure(err);
+            const message = `januscope: gate overlay '${overlay.name}' failed (${failure}); message refused for safety.`;
+            span.recordError(new Error(message));
+            span.end();
+            this.hooks.log("error", overlay.name, "client gate failed; message refused", {
+              failure,
+            });
             rootSpan.setAttribute("januscope.outcome", "gate_failure");
-            rootSpan.setStatus("error", `gate overlay '${overlay.name}' failed`);
+            rootSpan.setStatus("error", message);
             if ("id" in current) {
               const id =
                 typeof current.id === "string" ||
@@ -220,16 +231,16 @@ export class Pipeline {
                 current.id === null
                   ? current.id
                   : null;
-              const response = makeInternalErrorResponse(
-                id,
-                `januscope: gate overlay '${overlay.name}' failed; message refused for safety.`,
-              );
+              const response = makeInternalErrorResponse(id, message);
               if (isRequestMessage(current)) this.hooks.onForwardToClient(response);
               else this.hooks.onForwardToTarget(response);
             }
             return;
           }
           // observer overlay: fail open, continue.
+          span.recordError(err);
+          span.end();
+          this.hooks.log("error", overlay.name, "client overlay threw", errorInfo(err));
           continue;
         }
         span.setAttribute("januscope.overlay.result", result.kind);
@@ -293,12 +304,7 @@ export class Pipeline {
             // Exception messages can contain the very payload that failed
             // redaction (for example a DataCloneError). Keep diagnostics
             // useful without copying that payload into logs or telemetry.
-            const failure =
-              err instanceof RangeError
-                ? "RangeError"
-                : err instanceof TypeError
-                  ? "TypeError"
-                  : "processing error";
+            const failure = classifyGateFailure(err);
             const message = `januscope: gate overlay '${overlay.name}' failed (${failure}); message refused for safety.`;
             span.recordError(new Error(message));
             span.end();

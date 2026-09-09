@@ -13,6 +13,10 @@ interface Node {
   children: Array<{ key: string; node: Node }>;
 }
 
+/**
+ * Apply field replacements to a Python row representation without evaluating it.
+ * Return null when no row container is recognized; reject malformed or unsupported syntax.
+ */
 export function redactPythonLiteral(
   text: string,
   applyFields: (root: Record<string, unknown>) => void,

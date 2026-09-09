@@ -48,7 +48,11 @@ function recordingTracer(): { tracer: JanuScopeTracer; events: RecordedEvent[] }
         });
       },
       recordError(err) {
-        events.push({ kind: "error", span: id, error: err instanceof Error ? err.message : err });
+        events.push({
+          kind: "error",
+          span: id,
+          error: err instanceof Error ? { message: err.message, stack: err.stack } : err,
+        });
       },
       end() {
         events.push({ kind: "end", span: id });
@@ -181,6 +185,93 @@ describe("telemetry: Pipeline integration", () => {
     const errors = events.filter((e) => e.kind === "error");
     expect(errors).toHaveLength(1);
   });
+
+  it.each(["client", "server"] as const)(
+    "keeps %s gate exception details out of responses, logs and telemetry",
+    async (direction) => {
+      for (const [cause, failure] of [
+        [new TypeError("synthetic-sensitive-message"), "TypeError"],
+        [new RangeError("synthetic-sensitive-message"), "RangeError"],
+        [new Error("synthetic-sensitive-message"), "processing error"],
+        ["synthetic-sensitive-message", "processing error"],
+      ] as const) {
+        if (cause instanceof Error) cause.stack = "synthetic-sensitive-stack";
+        const { tracer, events } = recordingTracer();
+        const logs: unknown[] = [];
+        const responses: JsonRpcMessage[] = [];
+        const handler = () => {
+          throw cause;
+        };
+        const pipeline = new Pipeline(
+          [{ name: "policy", kind: "gate", onClientMessage: handler, onServerMessage: handler }],
+          {
+            onForwardToTarget: (message) => responses.push(message),
+            onForwardToClient: (message) => responses.push(message),
+            log: (...args) => logs.push(args),
+            tracer,
+          },
+        );
+        await pipeline.start();
+        try {
+          if (direction === "client") await pipeline.handleClientMessage(callMsg);
+          else await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 1, result: {} });
+          expect(responses).toEqual([
+            expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32603 }) }),
+          ]);
+          expect(logs).toEqual([
+            ["error", "policy", `${direction} gate failed; message refused`, { failure }],
+          ]);
+          const serialized = JSON.stringify([responses, logs, events]);
+          expect(serialized).not.toContain("synthetic-sensitive");
+          expect(events.filter((event) => event.kind === "error")).toEqual([
+            expect.objectContaining({
+              error: expect.objectContaining({ message: expect.stringContaining(`(${failure})`) }),
+            }),
+          ]);
+          expect(events.filter((event) => event.kind === "end")).toHaveLength(
+            events.filter((event) => event.kind === "start").length,
+          );
+        } finally {
+          await pipeline.stop();
+        }
+      }
+    },
+  );
+
+  it.each(["client", "server"] as const)(
+    "preserves %s observer diagnostics and forwarding after an exception",
+    async (direction) => {
+      const { tracer, events } = recordingTracer();
+      const logs: unknown[] = [];
+      const forwarded: JsonRpcMessage[] = [];
+      const cause = new Error("synthetic-observer-cause");
+      cause.stack = "synthetic-observer-stack";
+      const handler = () => {
+        throw cause;
+      };
+      const pipeline = new Pipeline(
+        [{ name: "observer", onClientMessage: handler, onServerMessage: handler }],
+        {
+          onForwardToTarget: (message) => forwarded.push(message),
+          onForwardToClient: (message) => forwarded.push(message),
+          log: (...args) => logs.push(args),
+          tracer,
+        },
+      );
+      await pipeline.start();
+      try {
+        if (direction === "client") await pipeline.handleClientMessage(callMsg);
+        else await pipeline.handleServerMessage(callMsg);
+        expect(forwarded).toEqual([callMsg]);
+        expect(JSON.stringify(logs)).toContain("synthetic-observer-cause");
+        expect(JSON.stringify(logs)).toContain("synthetic-observer-stack");
+        expect(JSON.stringify(events)).toContain("synthetic-observer-cause");
+        expect(JSON.stringify(events)).toContain("synthetic-observer-stack");
+      } finally {
+        await pipeline.stop();
+      }
+    },
+  );
 
   it("records short_circuited outcome with the overlay name when an overlay responds", async () => {
     const { tracer, events } = recordingTracer();

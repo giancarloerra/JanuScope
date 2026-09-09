@@ -158,6 +158,7 @@ async function stopWorker(worker: ChildProcess): Promise<string | null> {
   return signalGroup("SIGKILL") ?? termError;
 }
 
+/** Format a setup check report for the CLI, including discovered tools and policy status. */
 export function renderCheckReport(report: CheckReport): string {
   const lines = [report.ok ? "Setup check passed." : "Setup check failed."];
   for (const check of report.checks)
