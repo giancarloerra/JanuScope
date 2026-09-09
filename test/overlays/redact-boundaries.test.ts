@@ -494,10 +494,125 @@ describe("Python rows in response text", () => {
   });
 
   it.each([
+    { row: "['header', {'phone': 'private-phone'}]", field: "[1].phone" },
+    { row: "('header', {'phone': 'private-phone'},)", field: "[1].phone" },
+    { row: "[None, {'phone': 'private-phone'}]", field: "[1].phone" },
+    { row: "[[], {'phone': 'private-phone'}]", field: "[1].phone" },
+    { row: "[{}, {'phone': 'private-phone'}]", field: "[1].phone" },
+    {
+      row: "[[0, {'phone': 'private-phone'}], {'phone': 'keep'}]",
+      field: "[0][1].phone",
+    },
+    {
+      row: "({'rows': ['header', {'phone': 'private-phone'}]},)",
+      field: "rows[1].phone",
+    },
+    { row: "['header', {'phone': 'private-phone'}]", field: "phone" },
+    { row: "['header', {'phone': 'private-phone'}]", field: "*.phone" },
+    { row: "['header', {'phone': 'private-phone'}]", field: "**.phone" },
+  ])("retains the full Python container when matching $field", async ({ row, field }) => {
+    const { pipeline, toClient } = session({ rules: [{ field }] });
+    await pipeline.start();
+    const text = "Rows: " + row + "\nResult complete";
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual(messages(text.replace("'private-phone'", '"[REDACTED]"')));
+    await pipeline.stop();
+  });
+
+  it.each([
+    { prefix: "Notes (rows: ", suffix: ")" },
+    { prefix: "Notes [rows: ", suffix: "]" },
+    { prefix: "Notes (row details : ", suffix: ")" },
+    { prefix: "Notes (not a literal ", suffix: ")" },
+    { prefix: "Notes [not a literal ", suffix: "]" },
+    { prefix: "Notes (these are rows ", suffix: ")" },
+    { prefix: "[) unrelated] Rows: ", suffix: "" },
+    { prefix: "(] unrelated) Rows: ", suffix: "" },
+  ])(
+    "preserves narrative wrappers around the actual indexed row container",
+    async ({ prefix, suffix }) => {
+      const { pipeline, toClient } = session({ rules: [{ field: "[1].phone" }] });
+      await pipeline.start();
+      const text = prefix + "['header', {'phone': 'private-phone'}]" + suffix;
+      for (const message of messages(text)) await pipeline.handleServerMessage(message);
+      expect(toClient).toEqual(messages(text.replace("'private-phone'", '"[REDACTED]"')));
+      await pipeline.stop();
+    },
+  );
+
+  it.each([
+    "[), {'phone': 'private-phone'}]",
+    "(], {'phone': 'private-phone'})",
+    "[[), {'phone': 'private-phone'}]]",
+    "[(], {'phone': 'private-phone'}]",
+    "(None: {'phone': 'private-phone'})",
+    "(True: {'phone': 'private-phone'})",
+    "(lambda: {'phone': 'private-phone'})",
+    "[item for item in [{'phone': 'private-phone'}]]",
+    "(not item [{'phone': 'private-phone'}])",
+    "(item is other [{'phone': 'private-phone'}])",
+    "[UnknownType('x'), {'phone': 'private-phone'}]",
+    "[None {'phone': 'private-phone'}]",
+    "['header' {'phone': 'private-phone'}]",
+    "[1 {'phone': 'private-phone'}]",
+  ])("refuses literal syntax failures without flattening indexed paths", async (text) => {
+    const { pipeline, toClient, logs } = session({ rules: [{ field: "[1].phone" }] });
+    await pipeline.start();
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual([
+      expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 2, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 3, error: expect.objectContaining({ code: -32603 }) }),
+    ]);
+    expect(JSON.stringify([toClient, logs])).not.toContain("private-phone");
+    await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    expect(toClient[3]).toEqual({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    await pipeline.stop();
+  });
+
+  it.each([
+    "{1: {'phone': 'private-phone'}}",
+    "{(1, 2): {'phone': 'private-phone'}}",
+    "{None: {'phone': 'private-phone'}}",
+    "{True: {'phone': 'private-phone'}}",
+    "{key: {'phone': 'private-phone'}}",
+    "{b'phone': 'private-phone'}",
+    "{Decimal('1.00'): {'phone': 'private-phone'}}",
+    "{1: 'plain', 2: 'plain'}",
+    "{'rows': {1: {'phone': 'private-phone'}}}",
+    "['header', {1: {'phone': 'private-phone'}}]",
+    "{'safe', {'phone': 'private-phone'}}",
+    "{('safe', {'phone': 'private-phone'})}",
+    "{'safe', {}}",
+    "[item for item in [{'phone': 'private-phone'}]]",
+    "{1: {'phone': 'private-phone'",
+    "['header', {'phone': 'private-phone'}",
+    "[(1, {'phone': 'private-phone'}]",
+  ])("refuses unsupported Python dictionaries and containing structures", async (row) => {
+    const { pipeline, toClient, logs } = session({ rules });
+    await pipeline.start();
+    const text = "Rows: " + row + "\nResult complete";
+    for (const message of messages(text)) await pipeline.handleServerMessage(message);
+    expect(toClient).toEqual([
+      expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 2, error: expect.objectContaining({ code: -32603 }) }),
+      expect.objectContaining({ id: 3, error: expect.objectContaining({ code: -32603 }) }),
+    ]);
+    expect(JSON.stringify([toClient, logs])).not.toContain("private-phone");
+    await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    expect(toClient[3]).toEqual({ jsonrpc: "2.0", id: 4, result: "Healthy response" });
+    await pipeline.stop();
+  });
+
+  it.each([
     "{'a', 'b'}",
     "Values: {'phone', 'private-phone'}\n2 values",
     `{'a', "{'phone': 'literal-string'}"}`,
     `Values: ["{'phone': 'literal-string'}"]`,
+    `Values: ('header', "{'phone': 'literal-string'}",)`,
+    `Values: [b"{'phone': 'literal-string'}", None]`,
+    `Values: {(1, 2), "{'phone': 'literal-string'}"}`,
+    `Values: {1, 2, 'label: value'}`,
     `Rows: [{'label': "{'phone': 'literal-string'}", 'amount': Decimal('1.00')}]\n1 row returned`,
     "Rows: [{'phone': '[REDACTED]', 'amount': Decimal('1.00')}]\n1 row returned",
   ])("preserves non-row sets, quoted examples and unmatched values", async (text) => {

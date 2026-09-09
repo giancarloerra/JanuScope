@@ -162,6 +162,34 @@ describe("probeTarget diagnostic protocol verification", () => {
     ).rejects.toMatchObject({ code: "INVALID_MCP_RESPONSE" });
   });
 
+  it.each([{}, { tools: null }, { tools: {} }])(
+    "categorizes missing tool arrays without changing legacy failures (%j)",
+    async (result) => {
+      const config = scriptedConfig(`send(msg.id,${JSON.stringify(result)});`);
+      await expect(
+        probeTarget(config, { verifyProtocol: true, timeoutMs: 15_000 }),
+      ).rejects.toMatchObject({
+        code: "INVALID_MCP_RESPONSE",
+        message: "tools/list response had no `tools` array",
+      });
+      const legacy = probeTarget(config, { timeoutMs: 15_000 });
+      await expect(legacy).rejects.toMatchObject({
+        message: "tools/list response had no `tools` array",
+      });
+      await expect(legacy).rejects.not.toHaveProperty("code");
+    },
+  );
+
+  it("categorizes missing arrays on later pages instead of accepting an incomplete list", async () => {
+    const config = scriptedConfig(
+      `send(msg.id,msg.params?.cursor?{}:{tools:[],nextCursor:'page2'});`,
+    );
+    await expect(
+      probeTarget(config, { verifyProtocol: true, timeoutMs: 15_000 }),
+    ).rejects.toMatchObject({ code: "INVALID_MCP_RESPONSE" });
+    expect((await probeTarget(config, { timeoutMs: 15_000 })).tools).toEqual([]);
+  });
+
   it("retains a synchronous pagination write failure and stops the real target", async () => {
     const fixture = paginationFailureFixture(false);
     const cause = Object.assign(new Error("synthetic write failure"), { code: "EPIPE" });

@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { fork, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import * as nodeModule from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { CheckReport } from "../src/check.js";
 
 const CLI = resolve("src/cli.ts");
 const WORKER = resolve("src/check-worker.ts");
 const FIXTURE = resolve("test/fixtures/fake-mcp-server.mjs");
+// Match the source checker's loader selection on early and modern Node 20.
+const sourceRequire = nodeModule.createRequire(import.meta.url);
+const loader = pathToFileURL(sourceRequire.resolve("tsx")).href;
+const TSX_EXEC_ARGV =
+  typeof nodeModule.register === "function"
+    ? ["--import", loader]
+    : ["--require", sourceRequire.resolve("tsx/cjs"), "--loader", loader];
 const temporary: string[] = [];
 const workerGroups: number[] = [];
 afterEach(() => {
@@ -75,14 +84,10 @@ function configFile(overrides: Record<string, unknown> = {}): { directory: strin
 }
 
 function invoke(args: string[], env: NodeJS.ProcessEnv = process.env) {
-  const child = spawn(
-    process.execPath,
-    ["--import", import.meta.resolve("tsx"), CLI, "check", ...args],
-    {
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
-    },
-  );
+  const child = spawn(process.execPath, [...TSX_EXEC_ARGV, CLI, "check", ...args], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => {
@@ -408,7 +413,7 @@ describe("check CLI real process boundaries", () => {
       const worker = fork(WORKER, [fixture.path], {
         detached: true,
         stdio: ["ignore", "ignore", "ignore", "ipc"],
-        execArgv: ["--import", import.meta.resolve("tsx")],
+        execArgv: TSX_EXEC_ARGV,
         env: { ...process.env, HOME: fixture.directory },
       });
       const workerPid = trackWorkerGroup(worker.pid);
@@ -440,10 +445,10 @@ describe("check CLI real process boundaries", () => {
           target: { command: process.execPath, args: ["-e", HANGING_TARGET, pids] },
         }),
       );
-      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:['--import',process.argv[3]]});process.send({workerPid:worker.pid});worker.on('message',()=>{});`;
+      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:JSON.parse(process.argv[3])});process.send({workerPid:worker.pid});worker.on('message',()=>{});`;
       const supervisor = spawn(
         process.execPath,
-        ["-e", supervisorCode, WORKER, fixture.path, import.meta.resolve("tsx")],
+        ["-e", supervisorCode, WORKER, fixture.path, JSON.stringify(TSX_EXEC_ARGV)],
         {
           stdio: ["ignore", "ignore", "ignore", "ipc"],
           env: { ...process.env, HOME: fixture.directory },
@@ -480,10 +485,10 @@ describe("check CLI real process boundaries", () => {
       const fixture = configFile();
       rmSync(fixture.path);
       expect(spawnSync("mkfifo", [fixture.path]).status).toBe(0);
-      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:['--import',process.argv[3]]});process.send({workerPid:worker.pid});worker.on('message',message=>{if(message.phase)process.send({phase:message.phase});});`;
+      const supervisorCode = `const {fork}=require('node:child_process');const worker=fork(process.argv[1],[process.argv[2]],{detached:true,stdio:['ignore','ignore','ignore','ipc'],execArgv:JSON.parse(process.argv[3])});process.send({workerPid:worker.pid});worker.on('message',message=>{if(message.phase)process.send({phase:message.phase});});`;
       const supervisor = spawn(
         process.execPath,
-        ["-e", supervisorCode, WORKER, fixture.path, import.meta.resolve("tsx")],
+        ["-e", supervisorCode, WORKER, fixture.path, JSON.stringify(TSX_EXEC_ARGV)],
         {
           stdio: ["ignore", "ignore", "ignore", "ipc"],
           env: { ...process.env, HOME: fixture.directory },
@@ -537,7 +542,7 @@ describe("check CLI real process boundaries", () => {
       const worker = fork(WORKER, [fixture.path], {
         detached: true,
         stdio: ["ignore", "ignore", "ignore", "ipc"],
-        execArgv: ["--import", import.meta.resolve("tsx")],
+        execArgv: TSX_EXEC_ARGV,
         env: { ...process.env, HOME: fixture.directory },
       });
       const workerPid = trackWorkerGroup(worker.pid);

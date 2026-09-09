@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import * as nodeModule from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const CLI = resolve("src/cli.ts");
+// Match the source checker's loader selection on early and modern Node 20.
+const sourceRequire = nodeModule.createRequire(import.meta.url);
+const loader = pathToFileURL(sourceRequire.resolve("tsx")).href;
+const TSX_EXEC_ARGV =
+  typeof nodeModule.register === "function"
+    ? ["--import", loader]
+    : ["--require", sourceRequire.resolve("tsx/cjs"), "--loader", loader];
 const temporary: string[] = [];
 afterEach(() => {
   for (const directory of temporary.splice(0)) rmSync(directory, { recursive: true, force: true });
@@ -18,7 +26,7 @@ function directory(): string {
 }
 
 function run(entry: string, args: string[] = []) {
-  return spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), entry, ...args], {
+  return spawnSync(process.execPath, [...TSX_EXEC_ARGV, entry, ...args], {
     encoding: "utf8",
     timeout: 10_000,
   });

@@ -44,9 +44,10 @@ export function redactPythonLiteral(
   };
   let recognized = false;
   const ends = new Map<number, number | null>();
+  const rowContainers = new Set<number>();
   for (let position = 0; position < text.length; position++) {
     if (!/[{[(]/.test(text[position]!)) continue;
-    const end = containerEnd(text, position, ends);
+    const end = containerEnd(text, position, ends, rowContainers);
     const candidate = text.slice(position, end ?? undefined);
     // JSON delegates to its own redaction rules. Skip whole non-row containers
     // so quoted examples inside JSON, sets or string lists are not mistaken
@@ -68,21 +69,19 @@ export function redactPythonLiteral(
         continue;
       }
     }
-    const wrappers = /^(?:[[(]\s*)*/.exec(candidate)![0];
-    if (
-      !/^\{\s*(?:'(?:\\[^\r\n]|[^'\\\r\n])*'|"(?:\\[^\r\n]|[^"\\\r\n])*")\s*:/.test(
-        candidate.slice(wrappers.length),
-      )
-    ) {
-      if (end !== null && (text[position] === "{" || /^[[(]\s*['"]/.test(candidate))) {
+    if (!rowContainers.has(position)) {
+      if (end !== null) {
         position = end - 1;
-      } else if (wrappers.length > 0) {
-        position += wrappers.length - 1;
+      } else {
+        const wrappers = /^(?:[[(]\s*)*/.exec(candidate)![0];
+        if (wrappers.length > 0) position += wrappers.length - 1;
       }
       continue;
     }
-    // A quoted key followed by a colon identifies a row, rather than a set.
-    // Once recognized, malformed or unsupported values must still refuse.
+    if (isNarrativeWrapper(candidate)) continue;
+    // Parse the containing list/tuple too, preserving field paths and indexes.
+    // Dictionary keys must be strings; unsupported keys and enclosing sets
+    // refuse instead of hiding their nested fields or coercing key semantics.
     const root = new LiteralParser(text, position).parse();
     applyFields(root.value as Record<string, unknown>);
     collect(root);
@@ -100,15 +99,51 @@ export function redactPythonLiteral(
   return { text: redacted, normalized };
 }
 
+/** Recognize explicit labels or plain-word prose before a nested row span. */
+function isNarrativeWrapper(text: string): boolean {
+  const prefix = /^[[(]\s*([A-Za-z_]\w*(?:\s+[A-Za-z_]\w*)*)(?:\s*(:))?\s*(?=[{[(])/.exec(text);
+  if (!prefix) return false;
+  const words = prefix[1]!.split(/\s+/);
+  if (words[0] === "not") {
+    words.shift();
+    if (words.length < 2) return false;
+  }
+  const keyword =
+    /^(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)$/;
+  if (words.some((word) => keyword.test(word))) return false;
+  return prefix[2] === ":" || words.length >= 2;
+}
+
 /** Cache balanced container ends so nested or incomplete text is scanned once. */
 function containerEnd(
   text: string,
   start: number,
   ends: Map<number, number | null>,
+  rowContainers: Set<number>,
 ): number | null {
   const cached = ends.get(start);
   if (cached !== undefined) return cached;
-  const closes: Array<{ start: number; close: string }> = [];
+  const closes: Array<{
+    start: number;
+    close: string;
+    hasDictionary: boolean;
+    malformed: boolean;
+  }> = [];
+  const finish = (open: (typeof closes)[number]): void => {
+    const parent = closes[closes.length - 1];
+    if (open.hasDictionary) {
+      rowContainers.add(open.start);
+      if (parent) parent.hasDictionary = true;
+    }
+    if (open.malformed && parent) parent.malformed = true;
+  };
+  const unfinished = (): void => {
+    while (closes.length > 0) {
+      const open = closes.pop()!;
+      ends.set(open.start, null);
+      finish(open);
+    }
+  };
   let quote: string | undefined;
   for (let position = start; position < text.length; position++) {
     const char = text[position]!;
@@ -119,19 +154,33 @@ function containerEnd(
     }
     if (char === "'" || char === '"') quote = char;
     else if (char === "{" || char === "[" || char === "(") {
-      closes.push({ start: position, close: char === "{" ? "}" : char === "[" ? "]" : ")" });
+      closes.push({
+        start: position,
+        close: char === "{" ? "}" : char === "[" ? "]" : ")",
+        hasDictionary: false,
+        malformed: false,
+      });
+    } else if (char === ":") {
+      const open = closes[closes.length - 1];
+      if (open?.close === "}") open.hasDictionary = true;
     } else if (char === "}" || char === "]" || char === ")") {
-      const open = closes.pop();
+      const open = closes[closes.length - 1];
       if (open?.close !== char) {
-        if (open) ends.set(open.start, null);
-        for (const pending of closes) ends.set(pending.start, null);
-        return null;
+        // Keep the opening context: a later row still belongs to this
+        // malformed container and must not acquire a different field path.
+        if (open) open.malformed = true;
+        continue;
       }
-      ends.set(open.start, position + 1);
-      if (closes.length === 0) return position + 1;
+      closes.pop();
+      if (char === "}" && text.slice(open.start + 1, position).trim() === "") {
+        open.hasDictionary = true;
+      }
+      ends.set(open.start, open.malformed ? null : position + 1);
+      finish(open);
+      if (closes.length === 0) return open.malformed ? null : position + 1;
     }
   }
-  for (const pending of closes) ends.set(pending.start, null);
+  unfinished();
   return null;
 }
 

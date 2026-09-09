@@ -269,6 +269,10 @@ export async function probeTarget(
           }
           const tools = (msg.result as { tools?: unknown })?.tools;
           if (!Array.isArray(tools)) {
+            if (options.verifyProtocol) {
+              protocolFailure("tools/list response had no `tools` array");
+              return;
+            }
             clearTimeout(timer);
             fail(new Error("tools/list response had no `tools` array"));
             return;

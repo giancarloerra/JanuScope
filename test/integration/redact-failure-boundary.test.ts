@@ -18,6 +18,28 @@ const DUPLICATE_JSON: Record<string, string> = {
   "json-duplicate-nested": '{"row":{"phone":"synthetic-private-phone"},"row":null}',
   "json-duplicate-escaped": '{"ph\\u006fne":"synthetic-private-phone","phone":"[REDACTED]"}',
 };
+const PYTHON_CONTAINERS: Record<string, string> = {
+  "python-leading-string": "Rows: ['header', {'phone': 'synthetic-private-phone'}]",
+  "python-leading-tuple": "Rows: ('header', {'phone': 'synthetic-private-phone'},)",
+  "python-indexed-field": "Rows: [None, {'indexed_secret': 'synthetic-private-indexed'}]",
+  "python-prose-label": "Notes (rows: [{'phone': 'synthetic-private-phone'}])",
+  "python-prose-words": "Notes (not a literal [{'phone': 'synthetic-private-phone'}])",
+  "python-quoted-set": "Values: {'alpha', \"{'phone': 'literal-string'}\"}",
+  "python-unsupported-key": "Rows: {1: {'phone': 'synthetic-private-phone'}}",
+  "python-unsupported-tuple-key": "{('row', 1): {'phone': 'synthetic-private-phone'}}",
+  "python-unsupported-set": "{'alpha', {'phone': 'synthetic-private-phone'}}",
+  "python-unsupported-error": "Failure: {None: {'phone': 'synthetic-private-phone'}}",
+  "python-unsupported-truncated": "Rows: ['header', {'phone': 'synthetic-private-phone'",
+  "python-unsupported-early-close": "Rows: [), {'indexed_secret': 'synthetic-private-indexed'}]",
+};
+const REDACTED_PYTHON_CONTAINERS: Record<string, string> = {
+  "python-leading-string": "Rows: ['header', {'phone': \"[REDACTED]\"}]",
+  "python-leading-tuple": "Rows: ('header', {'phone': \"[REDACTED]\"},)",
+  "python-indexed-field": "Rows: [None, {'indexed_secret': \"[REDACTED]\"}]",
+  "python-prose-label": "Notes (rows: [{'phone': \"[REDACTED]\"}])",
+  "python-prose-words": "Notes (not a literal [{'phone': \"[REDACTED]\"}])",
+  "python-quoted-set": PYTHON_CONTAINERS["python-quoted-set"],
+};
 
 const SERVER = [
   'const readline = require("node:readline");',
@@ -44,12 +66,13 @@ const SERVER = [
   "  }",
   '  if (mode?.startsWith("python-")) {',
   `    let text = ${JSON.stringify(WRAPPED_PYTHON)};`,
+  `    text = ${JSON.stringify(PYTHON_CONTAINERS)}[mode] ?? text;`,
   `    if (mode === "python-mixed") text = ${JSON.stringify(UNCHANGED_JSON)} + text;`,
   `    if (mode === "python-json-after") text += ${JSON.stringify(JSON_AFTER_PYTHON)};`,
   `    if (mode === "python-json-regex") text += ${JSON.stringify(REGEX_JSON_AFTER_PYTHON)};`,
   `    if (mode === "python-set") text = ${JSON.stringify(PYTHON_SET)};`,
   "    if (mode === \"python-failure\") text = \"Rows: [{'phone': 'synthetic-private-phone'\";",
-  '    const body = mode === "python-error"',
+  '    const body = mode === "python-error" || mode === "python-unsupported-error"',
   "      ? { error: { code: -32002, message: text, data: { details: text } } }",
   '      : { result: { content: [{ type: "text", text }] } };',
   '    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, ...body }) + "\\n");',
@@ -92,7 +115,13 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
   const running = runOverlay({
     config: {
       target: { command: process.execPath, args: ["-e", SERVER] },
-      redact: { rules: [{ regex: "synthetic-private@example\\.invalid" }, { field: "**.phone" }] },
+      redact: {
+        rules: [
+          { regex: "synthetic-private@example\\.invalid" },
+          { field: "**.phone" },
+          { field: "[1].indexed_secret" },
+        ],
+      },
     },
     clientIn,
     clientOut,
@@ -117,6 +146,20 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
       [14, "json-duplicate-nested"],
       [15, "json-duplicate-escaped"],
       [16, "healthy"],
+      [17, "python-leading-string"],
+      [18, "python-leading-tuple"],
+      [19, "python-indexed-field"],
+      [20, "python-quoted-set"],
+      [21, "python-unsupported-key"],
+      [22, "python-unsupported-tuple-key"],
+      [23, "python-unsupported-set"],
+      [24, "python-unsupported-error"],
+      [25, "python-unsupported-truncated"],
+      [26, "healthy"],
+      [27, "python-prose-label"],
+      [28, "python-prose-words"],
+      [29, "python-unsupported-early-close"],
+      [30, "healthy"],
     ] as const) {
       clientIn.write(
         encodeFrame({
@@ -139,6 +182,7 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
       } else if (
         mode === "redaction-failure" ||
         mode === "python-failure" ||
+        mode.startsWith("python-unsupported-") ||
         mode.startsWith("json-duplicate")
       ) {
         expect(response).toMatchObject({ error: { code: -32603 } });
@@ -162,6 +206,10 @@ it("refuses redaction failures over MCP stdio and continues serving healthy resp
             : '\n{"contact":"[REDACTED]","count":1}';
         expect(response).toMatchObject({
           result: { content: [{ type: "text", text: REDACTED_WRAPPED_PYTHON + suffix }] },
+        });
+      } else if (REDACTED_PYTHON_CONTAINERS[mode]) {
+        expect(response).toMatchObject({
+          result: { content: [{ type: "text", text: REDACTED_PYTHON_CONTAINERS[mode] }] },
         });
       } else if (mode.startsWith("python-")) {
         const text =

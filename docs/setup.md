@@ -299,11 +299,11 @@ audit:
   logRawArgs: <bool> # default false; when false, args are SHA-256 hashed
 ```
 
-Environment variables in string values are expanded with `${VAR}` or `$VAR`. Missing variables become empty strings and emit a one-line `[januscope] warn: env var 'FOO' is unset, substituted empty string` on stderr (once per name). We don't refuse to start, the user may be intentionally testing with undefined vars, but the warning is loud enough that a forgotten `$DATABASE_URL` at 2am shows up in the logs instead of silently breaking the lens.
+Environment variables in string values are expanded with `${VAR}` or `$VAR`. During normal startup, missing variables become empty strings and emit a one-line `[januscope] warn: env var 'FOO' is unset, substituted empty string` on stderr (once per name); expansion itself does not refuse startup. `januscope check` instead fails its diagnostic when a required environment variable is unset or empty, before starting the target MCP.
 
 ### Response redaction formats
 
-Field rules cover structured response properties and recognized JSON and Python-style row spans inside text, including surrounding prose and mixed representations. Copies of text blocks nested inside `structuredContent` are processed too. Python rows retain the original spelling of unrelated values, including decimals, dates, UUIDs, network addresses, ranges, and multiranges. When field rules are configured, JSON text with duplicate object keys is refused because parsing could hide an earlier sensitive value. Recognized Python rows with duplicate keys, incomplete syntax or unsupported values are also refused. Field rules leave unrelated prose and non-row set literals unchanged.
+Field rules cover structured response properties and recognized JSON and Python-style row spans inside text, including surrounding prose and mixed representations. Copies of text blocks nested inside `structuredContent` are processed too. Containing Python lists and tuples are retained so field paths keep their original indexes, even when rows follow unrelated values. Python rows retain the original spelling of unrelated values, including decimals, dates, UUIDs, network addresses, ranges, and multiranges. When field rules are configured, JSON text with duplicate object keys is refused because parsing could hide an earlier sensitive value. Recognized Python containers with non-string dictionary keys, duplicate keys, incomplete syntax or unsupported values are also refused. Field rules leave unrelated prose and non-row set literals unchanged.
 
 `applyTo: text` is the default: regex rules process text blocks, while field rules also inspect structured properties. The legacy `fields` setting retains that behavior. `all` also processes other string values throughout the result. JSON-RPC errors always process message and data strings, preserving the numeric error code and request ID. These rules do not inspect image bytes or guarantee detection of arbitrary formats and unmatched secrets.
 
@@ -510,11 +510,21 @@ The full event union is available in two forms, both shipped with the package, s
     AuditShutdownEvent,
   } from "januscope";
   ```
-- **JSON Schema (Draft 2020-12)**: validate every JSONL line before parsing:
+- **JSON Schema (Draft 2020-12)**: validate each JSONL record with [Ajv CLI](https://github.com/ajv-validator/ajv-cli) and `ajv-formats`. Install both with `npm install -g ajv-cli ajv-formats`, then run:
   ```bash
   # node_modules/januscope/schemas/audit-event.json, or mirror it in your pipeline.
-  ajv --spec=draft2020 validate -s schemas/audit-event.json -d my-audit.jsonl
+  (
+    set -eu
+    audit_record_dir=$(mktemp -d "${TMPDIR:-/tmp}/januscope-audit.XXXXXX")
+    trap 'rm -rf "$audit_record_dir"' EXIT
+    while IFS= read -r line || [ -n "$line" ]; do
+      printf '%s\n' "$line" > "$audit_record_dir/record.json"
+      ajv --spec=draft2020 -c ajv-formats validate \
+        -s schemas/audit-event.json -d "$audit_record_dir/record.json"
+    done < my-audit.jsonl
+  )
   ```
+  The loop stops at the first invalid record, including an invalid final line without a newline, and removes its temporary file on exit.
 
 The event types are defined in `src/overlays/audit.ts`; the shipped JSON Schema describes the corresponding records.
 
