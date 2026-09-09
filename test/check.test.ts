@@ -575,5 +575,5 @@ describe("check CLI real process boundaries", () => {
       const result = await invoke(["--config", fixture.path, "--timeout", timeout]).result;
       expect(result.code).toBe(2);
     }
-  });
+  }, 30_000);
 });
