@@ -127,9 +127,14 @@ function approvalMetadata(directory: string): string {
 function assertProcessesStopped(path: string): void {
   const pids = JSON.parse(readFileSync(path, "utf8")) as number[];
   for (const pid of pids) {
-    const status = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
+    const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], {
       encoding: "utf8",
-    }).stdout.trim();
+    });
+    if (result.error) throw result.error;
+    if ((result.status !== 0 && result.status !== 1) || result.stderr.trim() !== "") {
+      throw new Error("Could not inspect diagnostic fixture process state");
+    }
+    const status = result.stdout.trim();
     // A container's PID 1 may retain an already terminated zombie briefly.
     expect(status === "" || status.startsWith("Z")).toBe(true);
   }

@@ -264,8 +264,8 @@ syntax (a single deliberate feature to keep secrets out of config files).
   re-thrown, written to stderr with a `[januscope]` prefix, or returned
   as a JSON-RPC error to the caller. If we can't parse a frame, we log
   and drop it.
-- **Refuse messages when a gate fails.** If `block`, `sqlGuard`, or
-  `redact` throws while processing a message, the pipeline refuses that
+- **Refuse messages when a gate fails.** If `block`, `rateLimit`, `sqlGuard`,
+  `redact`, or `toolSurface` throws while processing a message, the pipeline refuses that
   message. A failed response redaction produces a JSON-RPC error with
   code `-32603`; the original response is withheld. Observer failures
   are logged and forwarding continues. If the

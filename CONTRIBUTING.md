@@ -113,7 +113,7 @@ Prefix with the type and optional scope, then a short imperative description.
 
 - **TypeScript** with strict mode enabled
 - **ESM** (ES modules) — use `.js` extensions in imports
-- **Overlay shape** — new overlays implement the `Overlay` interface in `src/pipeline.ts`. Set `kind: "gate"` if the overlay enforces a security boundary (block, sqlGuard, redact); set `kind: "observer"` (or omit) for enhancers (audit, dbSchema, instructions). Gate overlays refuse the message on exception in either direction; observer failures are logged and forwarding continues
+- **Overlay shape** — new overlays implement the `Overlay` interface in `src/pipeline.ts`. Set `kind: "gate"` if the overlay enforces a security boundary (block, rateLimit, sqlGuard, redact, toolSurface); set `kind: "observer"` (or omit) for enhancers (audit, dbSchema, instructions). Gate overlays refuse the message on exception in either direction; observer failures are logged and forwarding continues
 - **Logging** — call `ctx.log(level, scope, message, extra)` from inside overlay handlers; never `console.log` in the engine
 - **Error messages** — user-friendly, actionable. If a lens config is wrong, the error should name the field and the file
 - **JSDoc** on all exported functions

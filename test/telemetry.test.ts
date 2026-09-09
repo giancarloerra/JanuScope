@@ -198,15 +198,16 @@ describe("telemetry: Pipeline integration", () => {
         if (cause instanceof Error) cause.stack = "synthetic-sensitive-stack";
         const { tracer, events } = recordingTracer();
         const logs: unknown[] = [];
-        const responses: JsonRpcMessage[] = [];
+        const toTarget: JsonRpcMessage[] = [];
+        const toClient: JsonRpcMessage[] = [];
         const handler = () => {
           throw cause;
         };
         const pipeline = new Pipeline(
           [{ name: "policy", kind: "gate", onClientMessage: handler, onServerMessage: handler }],
           {
-            onForwardToTarget: (message) => responses.push(message),
-            onForwardToClient: (message) => responses.push(message),
+            onForwardToTarget: (message) => toTarget.push(message),
+            onForwardToClient: (message) => toClient.push(message),
             log: (...args) => logs.push(args),
             tracer,
           },
@@ -215,13 +216,14 @@ describe("telemetry: Pipeline integration", () => {
         try {
           if (direction === "client") await pipeline.handleClientMessage(callMsg);
           else await pipeline.handleServerMessage({ jsonrpc: "2.0", id: 1, result: {} });
-          expect(responses).toEqual([
+          expect(toClient).toEqual([
             expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32603 }) }),
           ]);
+          expect(toTarget).toEqual([]);
           expect(logs).toEqual([
             ["error", "policy", `${direction} gate failed; message refused`, { failure }],
           ]);
-          const serialized = JSON.stringify([responses, logs, events]);
+          const serialized = JSON.stringify([toClient, toTarget, logs, events]);
           expect(serialized).not.toContain("synthetic-sensitive");
           expect(events.filter((event) => event.kind === "error")).toEqual([
             expect.objectContaining({
