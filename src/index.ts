@@ -407,6 +407,7 @@ export function buildOverlays(config: OverlayConfig): Overlay[] {
         connectionString: config.dbSchema.connectionString,
         ...(config.dbSchema.driver ? { driver: config.dbSchema.driver } : {}),
         ...(config.dbSchema.tables ? { tables: config.dbSchema.tables } : {}),
+        ...(config.dbSchema.schemas ? { schemas: config.dbSchema.schemas } : {}),
         ...(config.dbSchema.excludeTables ? { excludeTables: config.dbSchema.excludeTables } : {}),
         ...(config.dbSchema.injectInto ? { injectInto: config.dbSchema.injectInto } : {}),
         format: config.dbSchema.format,

@@ -11,38 +11,75 @@
  * lens name should fail with a clear "no bundled lens named X" error,
  * not fall through to "ENOENT relative path X".
  */
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const CLI = resolve(__dirname, "..", "src", "cli.ts");
 const TSX = resolve(__dirname, "..", "node_modules", ".bin", "tsx");
+const fixtureDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of fixtureDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function createFixtureDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), "januscope-cfg-resolver-"));
+  fixtureDirectories.push(directory);
+  return directory;
+}
 
 function runCli(
   args: string[],
   extraEnv: Record<string, string> = {},
+  cwd?: string,
 ): {
   stdout: string;
   stderr: string;
   status: number;
+  approvalsPath: string;
 } {
   // We don't actually want JanuScope to spawn a real target during these
   // resolver tests; we only care about config loading. So we use the
   // approve subcommand with --no-probe — it loads the config but doesn't
   // spawn the target.
+  const childHome = createFixtureDirectory();
   const r = spawnSync(TSX, [CLI, ...args], {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, ...extraEnv },
+    ...(cwd ? { cwd } : {}),
+    // os.homedir() uses HOME on POSIX and USERPROFILE on Windows.
+    // Always override these after extraEnv so every approval is isolated.
+    env: { ...process.env, ...extraEnv, HOME: childHome, USERPROFILE: childHome },
     timeout: 30_000,
   });
   return {
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
     status: typeof r.status === "number" ? r.status : 1,
+    approvalsPath: join(childHome, ".januscope", "approved.json"),
   };
+}
+
+function expectIsolatedApproval(approvalsPath: string, configPath?: string): void {
+  // Reading the actual fixture file catches a regression to the parent's
+  // home even when approve still exits successfully and prints its summary.
+  const stored = JSON.parse(readFileSync(approvalsPath, "utf8")) as {
+    version: number;
+    approvals: Record<string, { fingerprint: string; config_path?: string }>;
+  };
+  expect(stored.version).toBe(1);
+  const entries = Object.values(stored.approvals);
+  expect(entries).toHaveLength(1);
+  expect(entries[0]?.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  if (configPath) {
+    // A child cwd resolves macOS's /var -> /private/var alias.
+    expect(realpathSync(entries[0]!.config_path!)).toBe(realpathSync(configPath));
+  }
 }
 
 describe("cli: --config argument resolution", () => {
@@ -59,6 +96,7 @@ describe("cli: --config argument resolution", () => {
     expect(r.stderr).not.toMatch(/ENOENT/);
     expect(r.stderr).not.toMatch(/no bundled lens/);
     expect(r.stdout).toMatch(/januscope approve/);
+    expectIsolatedApproval(r.approvalsPath);
   });
 
   it("rejects an unknown bare name with a clear message (does NOT try as relative path)", () => {
@@ -72,7 +110,7 @@ describe("cli: --config argument resolution", () => {
   });
 
   it("accepts a path with a YAML extension", () => {
-    const dir = mkdtempSync(join(tmpdir(), "januscope-cfg-resolver-"));
+    const dir = createFixtureDirectory();
     const path = join(dir, "lens.yaml");
     writeFileSync(
       path,
@@ -81,25 +119,21 @@ describe("cli: --config argument resolution", () => {
     const r = runCli(["approve", "--config", path, "--no-probe"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/januscope approve/);
+    expectIsolatedApproval(r.approvalsPath, path);
   });
 
   it("accepts a relative path (./...)", () => {
-    const dir = mkdtempSync(join(tmpdir(), "januscope-cfg-resolver-"));
+    const dir = createFixtureDirectory();
     const filename = "lens.yaml";
     writeFileSync(
       join(dir, filename),
       ["target:", "  command: /usr/bin/env", "  args: [echo, hello]", ""].join("\n"),
     );
     // Run from the temp dir so the relative path resolves there.
-    const r = spawnSync(TSX, [CLI, "approve", "--config", `./${filename}`, "--no-probe"], {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-      cwd: dir,
-      env: process.env,
-      timeout: 30_000,
-    });
+    const r = runCli(["approve", "--config", `./${filename}`, "--no-probe"], {}, dir);
     expect(r.status).toBe(0);
-    expect((r.stdout ?? "").length).toBeGreaterThan(0);
+    expect(r.stdout.length).toBeGreaterThan(0);
+    expectIsolatedApproval(r.approvalsPath, join(dir, filename));
   });
 
   it("treats an unknown path-shaped value as a path (and reports a path error, not a lens error)", () => {

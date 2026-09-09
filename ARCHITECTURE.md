@@ -172,7 +172,7 @@ the others:
 | ------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Shape intent**          | `instructions`       | Tell the model _what to ask for_ in natural language, pushed into every tool description                                      | Model may forget or be jailbroken                                                                             |
 | **Enforce at the gate**   | `block` + `sqlGuard` | Refuse the tool call before the target MCP sees it — `block` at tool-name granularity, `sqlGuard` at SQL-argument granularity | `block` can't partition reads/writes inside a single tool; `sqlGuard` is keyword-based, not a full SQL parser |
-| **Scrub on the way back** | `redact`             | Strip PII from results before the model sees them                                                                             | Pattern matching — determined adversaries can encode around it                                                |
+| **Scrub on the way back** | `redact`             | Redact configured matches in results and JSON-RPC errors; refuse the response if required redaction fails                     | Pattern matching does not guarantee detection of every secret or format                                       |
 
 A typical high-assurance Lens uses **all three layers** plus a
 database-level read-only role as a fourth backstop. The single-query
@@ -264,10 +264,14 @@ syntax (a single deliberate feature to keep secrets out of config files).
   re-thrown, written to stderr with a `[januscope]` prefix, or returned
   as a JSON-RPC error to the caller. If we can't parse a frame, we log
   and drop it.
-- **Fail open on overlay errors, fail closed on policy errors.** If the
+- **Refuse messages when a gate fails.** If `block`, `sqlGuard`, or
+  `redact` throws while processing a message, the pipeline refuses that
+  message. A failed response redaction produces a JSON-RPC error with
+  code `-32603`; the original response is withheld. Observer failures
+  are logged and forwarding continues. If the
   `audit` overlay can't write to its sink, we log the error and keep
   serving (availability over completeness for non-policy overlays). If
-  the `block` overlay can't load its config, we refuse to start — a
+  the `block` overlay can't load its config, we refuse to start because a
   broken policy must never default to "allow."
 - **Target process lifecycle.** If the target exits unexpectedly, we log,
   propagate a graceful shutdown to our own stdout (send a final error to

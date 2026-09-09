@@ -1,26 +1,27 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.giancarloerra/januscope",
-  "description": "Local MCP policy proxy. Wraps any stdio MCP server with one YAML lens that adds tool blocking, SQL read-only filtering, output redaction, audit logging, rate limiting, OpenTelemetry tracing, and database-schema injection. No hosted gateway in the data path; tool traffic stays on the operator's machine.",
+  "description": "Local MCP proxy for tool restrictions, response redaction, audit logs, and database schema context.",
   "repository": {
     "url": "https://github.com/giancarloerra/januscope",
     "source": "github"
   },
-  "version": "0.3.0",
+  "version": "0.4.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "januscope",
-      "version": "0.3.0",
+      "version": "0.4.4",
       "transport": {
         "type": "stdio"
       },
-      "runtimeArguments": [
+      "packageArguments": [
         {
+          "type": "named",
           "name": "--config",
-          "description": "Absolute path to the lens config YAML. The lens declares the target MCP to wrap and the policy overlays to apply. Bundled lenses live under lenses/ in the repo and via `januscope lenses list` after install.",
+          "description": "Bundled policy preset name (for example postgres-crystaldba) or absolute path to a YAML/JSON policy. The target MCP's prerequisites and environment variables must also be configured; inspect them with januscope lenses show <name>.",
           "isRequired": true,
-          "format": "filepath"
+          "format": "string"
         }
       ],
       "environmentVariables": [

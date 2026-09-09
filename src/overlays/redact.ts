@@ -16,7 +16,8 @@
  */
 
 import type { Overlay } from "../pipeline.js";
-import { isSuccess, type JsonRpcSuccess } from "../rpc.js";
+import { isResponse, type JsonRpcErrorBody } from "../rpc.js";
+import { redactPythonLiteral } from "./python-literal.js";
 
 export type RedactRule = { regex: string } | { field: string };
 
@@ -40,15 +41,60 @@ export function createRedactOverlay(options: RedactOverlayOptions): Overlay {
 
   return {
     name: "redact",
+    kind: "gate",
     onServerMessage(msg) {
-      if (!isSuccess(msg)) {
+      const hasResult = "result" in msg;
+      const hasError = "error" in msg;
+      if (!hasResult && !hasError) {
         return { kind: "forward", msg };
       }
-      const scrubbed = scrubResult(msg.result, compiled, replacement, applyTo);
-      const out: JsonRpcSuccess = { ...msg, result: scrubbed };
-      return { kind: "forward", msg: out };
+      if (!isResponse(msg) || hasResult === hasError) {
+        throw new TypeError("redact: ambiguous response envelope");
+      }
+      if ("error" in msg) {
+        const error = scrubError(msg.error, compiled, replacement);
+        return { kind: "forward", msg: { ...msg, error } };
+      }
+      const result = scrubResult(msg.result, compiled, replacement, applyTo);
+      return { kind: "forward", msg: { ...msg, result } };
     },
   };
+}
+
+function scrubError(
+  error: JsonRpcErrorBody,
+  rules: CompiledRules,
+  replacement: string,
+): JsonRpcErrorBody {
+  if (
+    !error ||
+    typeof error !== "object" ||
+    Array.isArray(error) ||
+    !Number.isFinite(error.code) ||
+    typeof error.message !== "string"
+  ) {
+    throw new TypeError("redact: invalid error response");
+  }
+  const payload = structuredCloneCompat(error) as unknown as Record<string, unknown>;
+  applyFieldRules(payload, rules.fieldPatterns, replacement);
+  // Both error-relative paths (data.email) and data-relative paths
+  // (email) work; recursive presets such as **.email cover either.
+  if (payload.data && typeof payload.data === "object") {
+    applyFieldRules(payload.data as Record<string, unknown>, rules.fieldPatterns, replacement);
+  }
+  scrubStrings(payload, (text) => scrubText(text, rules, replacement));
+  // Policy fields must never rewrite JSON-RPC's numeric control code.
+  return { ...payload, code: error.code } as unknown as JsonRpcErrorBody;
+}
+
+function scrubStrings(node: unknown, scrub: (text: string) => string): void {
+  if (!node || typeof node !== "object") return;
+  const object = node as Record<string, unknown>;
+  for (const key of Object.keys(object)) {
+    const value = object[key];
+    if (typeof value === "string") object[key] = scrub(value);
+    else scrubStrings(value, scrub);
+  }
 }
 
 function scrubResult(
@@ -57,6 +103,7 @@ function scrubResult(
   replacement: string,
   applyTo: ApplyTo,
 ): unknown {
+  if (typeof result === "string") return scrubText(result, rules, replacement);
   if (!result || typeof result !== "object") return result;
 
   // Deep clone so the original (held by the audit overlay upstream) is preserved.
@@ -69,67 +116,55 @@ function scrubResult(
     applyFieldRules(cloned, rules.fieldPatterns, replacement);
   }
 
-  if (applyTo === "all" && rules.regexes.length > 0) {
-    applyRegexRecursive(cloned, rules.regexes, replacement);
-  } else if (applyTo === "text" || applyTo === "fields") {
-    // 2. For each text content block, additionally try to parse the
-    //    `text` as JSON and apply field-path rules to the parsed
-    //    structure. Many MCPs (including the official Postgres one)
-    //    return rows as a JSON string inside a `text` block — without
-    //    this step, `**.email` could never reach into that string.
-    //    Then apply regex rules on the (possibly re-serialised) text.
-    const content = (cloned as { content?: unknown }).content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (
-          block &&
-          typeof block === "object" &&
-          (block as { type?: unknown }).type === "text" &&
-          typeof (block as { text?: unknown }).text === "string"
-        ) {
-          const typed = block as { text: string };
-          let text = typed.text;
-
-          if (rules.fieldPatterns.length > 0) {
-            const json = tryParseJson(text);
-            if (json) {
-              for (const pattern of rules.fieldPatterns) {
-                walkAndRedact(json.parsed, pattern.segments, 0, replacement);
-              }
-              text = json.pretty
-                ? JSON.stringify(json.parsed, null, 2)
-                : JSON.stringify(json.parsed);
-            } else {
-              // Fallback: some MCPs wrap their JSON in a narrative envelope
-              // (e.g. the official MongoDB MCP brackets results in
-              // <untrusted-user-data-…>…</untrusted-user-data-…> tags).
-              // If we can isolate an embedded JSON object/array, redact
-              // the parsed form and splice it back in. This makes field
-              // rules like `**.email` reach into those wrappers.
-              const embedded = extractEmbeddedJsonBlock(text);
-              if (embedded) {
-                for (const pattern of rules.fieldPatterns) {
-                  walkAndRedact(embedded.parsed, pattern.segments, 0, replacement);
-                }
-                const reSerialised = embedded.pretty
-                  ? JSON.stringify(embedded.parsed, null, 2)
-                  : JSON.stringify(embedded.parsed);
-                text = embedded.before + reSerialised + embedded.after;
-              }
-            }
-          }
-
-          if (rules.regexes.length > 0) {
-            text = applyRegexList(text, rules.regexes, replacement);
-          }
-
-          typed.text = text;
-        }
-      }
-    }
+  if (applyTo === "all") {
+    scrubStrings(cloned, (text) => scrubText(text, rules, replacement));
+  } else {
+    // MCPs may duplicate text blocks inside structuredContent. Traverse
+    // those copies too, while preserving the default non-text boundary.
+    scrubTextBlocks(cloned, (text) => scrubText(text, rules, replacement));
   }
 
   return cloned;
+}
+
+function scrubTextBlocks(node: unknown, scrub: (text: string) => string): void {
+  if (!node || typeof node !== "object") return;
+  const object = node as Record<string, unknown>;
+  if (object.type === "text" && typeof object.text === "string") {
+    object.text = scrub(object.text);
+  }
+  for (const value of Object.values(object)) {
+    if (value && typeof value === "object") scrubTextBlocks(value, scrub);
+  }
+}
+
+function scrubText(text: string, rules: CompiledRules, replacement: string): string {
+  if (rules.fieldPatterns.length > 0) {
+    const json = tryParseJson(text);
+    if (json) {
+      applyFieldRules(json.parsed as Record<string, unknown>, rules.fieldPatterns, replacement);
+      text = json.pretty ? JSON.stringify(json.parsed, null, 2) : JSON.stringify(json.parsed);
+    } else {
+      const embedded = extractEmbeddedJsonBlock(text);
+      if (embedded) {
+        applyFieldRules(
+          embedded.parsed as Record<string, unknown>,
+          rules.fieldPatterns,
+          replacement,
+        );
+        const redacted = embedded.pretty
+          ? JSON.stringify(embedded.parsed, null, 2)
+          : JSON.stringify(embedded.parsed);
+        text = embedded.before + redacted + embedded.after;
+      } else {
+        const python = redactPythonLiteral(text, (root) =>
+          applyFieldRules(root, rules.fieldPatterns, replacement),
+        );
+        if (python !== null) text = python;
+      }
+    }
+  }
+  return applyRegexList(text, rules.regexes, replacement);
 }
 
 /**
@@ -231,30 +266,6 @@ function applyRegexList(value: string, regexes: RegExp[], replacement: string): 
     out = out.replace(re, replacer);
   }
   return out;
-}
-
-function applyRegexRecursive(node: unknown, regexes: RegExp[], replacement: string): void {
-  if (typeof node !== "object" || node === null) return;
-  if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) {
-      const v = node[i];
-      if (typeof v === "string") {
-        node[i] = applyRegexList(v, regexes, replacement);
-      } else {
-        applyRegexRecursive(v, regexes, replacement);
-      }
-    }
-    return;
-  }
-  const obj = node as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    const v = obj[key];
-    if (typeof v === "string") {
-      obj[key] = applyRegexList(v, regexes, replacement);
-    } else {
-      applyRegexRecursive(v, regexes, replacement);
-    }
-  }
 }
 
 /* ----------------------------- Field paths ----------------------------- */

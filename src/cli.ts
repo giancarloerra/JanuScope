@@ -14,7 +14,7 @@
  *   januscope --help
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { renderBootSummary, shouldPrintBootSummary } from "./boot-summary.js";
@@ -23,6 +23,7 @@ import { runOverlay } from "./index.js";
 import { loadLenses, type Lens } from "./lenses.js";
 import { probeTarget } from "./probe.js";
 import { recordApproval, recordLiveToolsApproval } from "./quarantine.js";
+import { checkConfig, renderCheckReport } from "./check.js";
 
 /* ─────────────────── shared types ─────────────────── */
 
@@ -54,6 +55,7 @@ Usage:
   januscope --target "<command>" [--block a,b] [--instructions "..."] [--audit <sink>]
   januscope lenses <list|show|search> [args...]
   januscope approve --config <path>
+  januscope check --config <preset-or-path> [--timeout <ms>] [--json]
 
 Options:
   -c, --config <path>       YAML or JSON config file
@@ -101,6 +103,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
   if (argv[0] === "approve") {
     return runApproveSubcommand(argv.slice(1));
+  }
+  if (argv[0] === "check") {
+    return runCheckSubcommand(argv.slice(1));
   }
 
   let args: RunArgs;
@@ -390,6 +395,81 @@ function runLensesSearch(lenses: Lens[], rawQuery: string): number {
 
 /* ─────────────────── approve subcommand ─────────────────── */
 
+const CHECK_HELP = `januscope check - diagnose a preset or configuration
+
+Usage:
+  januscope check --config <preset-or-path> [--timeout <ms>] [--json]
+
+Checks required environment variables, local prerequisites, configured
+database/context startup, and initialize -> notifications/initialized ->
+tools/list. Reports the live tool surface and configured policy.
+
+  --timeout <ms>   Whole-check deadline (default 90000).
+  --json           Print one JSON diagnostic report.
+
+No tools/call requests, config changes, audit records, or approval changes
+are made by the checker. Target startup may download packages, write caches,
+or request authentication. Approval state and tool execution are not tested.
+`;
+
+async function runCheckSubcommand(argv: string[]): Promise<number> {
+  let config: string | undefined;
+  let timeoutMs = 90_000;
+  let json = false;
+  try {
+    for (let i = 0; i < argv.length; i++) {
+      const argument = argv[i];
+      if (argument === "--help" || argument === "-h") {
+        process.stdout.write(CHECK_HELP);
+        return 0;
+      }
+      if (argument === "--config" || argument === "-c") {
+        const value = argv[++i];
+        if (!value || value.startsWith("--")) throw new Error("--config requires a preset or path");
+        config = value;
+      } else if (argument === "--timeout") {
+        const value = argv[++i];
+        if (
+          !value ||
+          !/^[0-9]+$/.test(value) ||
+          !Number.isSafeInteger(Number(value)) ||
+          Number(value) < 1 ||
+          Number(value) > 2_147_483_647
+        ) {
+          throw new Error("--timeout must be an integer between 1 and 2147483647ms");
+        }
+        timeoutMs = Number(value);
+      } else if (argument === "--json") json = true;
+      else throw new Error(`unknown check argument: ${argument}`);
+    }
+    if (!config) throw new Error("--config is required");
+  } catch (error) {
+    process.stderr.write(
+      `error: ${error instanceof Error ? error.message : String(error)}\n${CHECK_HELP}`,
+    );
+    return 2;
+  }
+  const controller = new AbortController();
+  let interrupted: NodeJS.Signals | undefined;
+  const cancel = (signal: NodeJS.Signals): void => {
+    interrupted ??= signal;
+    controller.abort();
+  };
+  const onInterrupt = (): void => cancel("SIGINT");
+  const onTerminate = (): void => cancel("SIGTERM");
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
+  try {
+    const report = await checkConfig(config, { timeoutMs, signal: controller.signal });
+    process.stdout.write(json ? JSON.stringify(report, null, 2) + "\n" : renderCheckReport(report));
+    if (interrupted) return interrupted === "SIGINT" ? 130 : 143;
+    return report.ok ? 0 : 1;
+  } finally {
+    process.removeListener("SIGINT", onInterrupt);
+    process.removeListener("SIGTERM", onTerminate);
+  }
+}
+
 const APPROVE_HELP = `januscope approve — record a fingerprint approval for a lens
 
 Usage:
@@ -573,7 +653,7 @@ async function runApproveSubcommand(argv: string[]): Promise<number> {
  * bundled-lens name. Lens names are always kebab-case identifiers
  * with no dots or slashes, so the heuristic is unambiguous.
  */
-function resolveConfigArg(value: string): string {
+export function resolveConfigArg(value: string): string {
   if (looksLikePath(value)) return value;
   const result = loadLenses();
   const found = result.lenses.find((l) => l.name === value);
@@ -680,16 +760,21 @@ function tokenizeCommand(input: string): string[] {
 /* ─────────────────── direct-invocation guard ─────────────────── */
 
 // When run directly (not imported), invoke main and set exit code.
-// Compare normalised filesystem paths so this works on Windows too,
-// where `file://` URLs use backslash/encoding conventions that differ
-// from process.argv[1].
+// npm's .bin entry is a symlink: Node resolves the module URL while argv[1]
+// can retain the symlink. Compare canonical files so installed and source
+// entry points behave alike, while imports do not start the CLI.
 const invokedDirectly = (() => {
   const entry = process.argv[1];
   if (!entry) return false;
+  const modulePath = realpathSync(fileURLToPath(import.meta.url));
   try {
-    return fileURLToPath(import.meta.url) === resolve(entry);
-  } catch {
-    return false;
+    return modulePath === realpathSync(resolve(entry));
+  } catch (error) {
+    // Importers can supply a virtual or missing argv entry. Other filesystem
+    // failures must remain visible instead of looking like a successful run.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
   }
 })();
 if (invokedDirectly) {
