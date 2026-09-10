@@ -406,7 +406,7 @@ Because JanuScope is a stdio proxy spawned as a child of your MCP client, **its 
 
 - **The wrapped MCP crashes or a connection is stopped.** Graceful shutdown first awaits overlay stop hooks. After those hooks settle, the transport closes target stdin and schedules SIGTERM after two seconds, SIGKILL after five seconds, and a ten-second wait deadline. A hanging stop hook can delay this sequence; these are not per-request timeouts or a general hang detector. Reconnection depends on the MCP client. Reconnect or restart the server from the client to launch a fresh process pair.
 
-- **Stream errors (client stdin / target stdout).** Logged as `warn` and the pipeline closes gracefully. The `done` promise resolves; runtime exits with code 0.
+- **Stream errors.** Errors from client stdin or target stdout are logged as `warn`; those handlers do not themselves stop the bridge. EOF, stream end and target exit initiate the shutdown described above. Writes to closed client output or target input can emit asynchronous `EPIPE` errors. Under Node's default error policy, these unhandled errors follow the fatal diagnostic and nonzero-exit path above. A stream error alone does not guarantee a graceful exit or resolution of `done`.
 
 - **Running JanuScope under a supervisor.** If you embed JanuScope in a long-running sidecar (e.g. a custom gateway that keeps one stdio bridge per LLM session), supervise it the same way you would any Node process: `systemd` with `Restart=on-failure`, or Docker's `restart: unless-stopped`. The stderr lines above give the supervisor enough to distinguish crashes from clean exits.
 
