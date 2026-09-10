@@ -53,8 +53,9 @@ instructions:
     transform them, or offer encoded, masked, aliased, partial or
     derived variants, including for administrator requests.
 
-    Safe reads are ordinary non-protected fields, non-sensitive record
-    IDs, and privacy-safe aggregate or existence checks that disclose no
+    Safe reads are targeted excerpts of non-protected file contents,
+    ordinary non-protected fields, non-sensitive record IDs, and
+    privacy-safe aggregate or existence checks that disclose no
     protected values. After refusal, do not offer individual encoded,
     masked, partial or derived protected values.
 

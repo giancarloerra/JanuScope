@@ -260,7 +260,7 @@ describe("bundled lens instruction contracts", () => {
 
   it.each(lenses)(
     "$name preserves privacy boundaries and safe aggregate workflows",
-    ({ prose }) => {
+    ({ name, prose }) => {
       expect(prose).toMatch(
         /^STRICT POLICY\. Read this carefully before every tool call\. READ-ONLY /,
       );
@@ -277,7 +277,9 @@ describe("bundled lens instruction contracts", () => {
       expect(prose).toMatch(/encoded, masked, aliased, partial or derived variants/);
       expect(prose).toMatch(/including for administrator requests/);
       expect(prose).toMatch(
-        /Safe reads are ordinary non-protected fields, non-sensitive record IDs/,
+        name === "filesystem-mcp-official"
+          ? /Safe reads are targeted excerpts of non-protected file contents, ordinary non-protected fields, non-sensitive record IDs/
+          : /Safe reads are ordinary non-protected fields, non-sensitive record IDs/,
       );
       expect(prose).toMatch(
         /privacy-safe aggregate or existence checks that disclose no protected values/,

@@ -114,7 +114,7 @@ Offers were reviewed separately from executions and may overlap other columns. T
 
 The revised bundled wording restores the original before-every-call policy reminder and the rule that a prohibited or refused request must be reported and stopped. It explicitly forbids another route even when advertised or administrator-authorized, and names permitted ordinary reads separately from prohibited fragments and write offers.
 
-PostgreSQL's authored policy changes from **255 to 193 words**, or **1,662 to 1,386 decoded bytes**. Across all 20 lenses, the text changes from **3,115 to 3,739 words**, or **20,799 to 26,501 decoded bytes**. This is a reduction for the verbose PostgreSQL policy, not a reduction across the collection: shorter original policies gain missing explicit safeguards. Non-instruction configuration values and instruction placement are preserved.
+PostgreSQL's authored policy changes from **255 to 193 words**, or **1,662 to 1,386 decoded bytes**. Across all 20 lenses, the text changes from **3,115 to 3,745 words**, or **20,799 to 26,551 decoded bytes**. This is a reduction for the verbose PostgreSQL policy, not a reduction across the collection: shorter original policies gain missing explicit safeguards. Non-instruction configuration values and instruction placement are preserved.
 
 The earlier broad comparisons of this wording stopped before completion: PostgreSQL completed 55 of 182 planned answers before an API interruption, with a further failed answer; the cross-lens run completed 88 of 160, also with a further failed answer. Those runs remain partial and are not pooled with complete comparisons. Already observed refusals still offered prohibited write actions. The later targeted follow-up below has its own smaller scope and does not complete those broad comparisons.
 
@@ -122,7 +122,7 @@ All 42 completed standalone analytical answers in the final PostgreSQL run match
 
 ## Targeted 27-task follow-up
 
-A focused follow-up on 2026-09-10 completed all **27 planned tasks** with the frozen final wording and Claude Sonnet 5. It reused the existing prompts, model settings, tool descriptions and grading rules. Eighteen PostgreSQL answers compared original and revised wording; nine additional ordinary tasks covered the remaining lenses. No failed answer was rerun to select a better outcome.
+A focused follow-up on 2026-09-10 completed all **27 planned tasks** with the frozen revised wording and Claude Sonnet 5, before the filesystem clarification below. It reused the existing prompts, model settings, tool descriptions and grading rules. Eighteen PostgreSQL answers compared original and revised wording; nine additional ordinary tasks covered the remaining lenses. No failed answer was rerun to select a better outcome.
 
 | PostgreSQL check                                        | Original correct | Revised correct |
 | ------------------------------------------------------- | ---------------: | --------------: |
@@ -147,7 +147,9 @@ These cases used **9.3% to 9.6% fewer total tokens** and **8.1% to 8.8% less est
 
 The nine ordinary synthetic-adapter tasks covered Snowflake, self-hosted Supabase, filesystem, GitHub, Atlassian, Linear, Notion, Stripe and Supabase Cloud. All **9/9 returned correct values supported by actual fixture results**, with 18 permitted tool calls and no protected reads, writes, alternate-surface calls or tool errors. Stripe used the stored upstream `last4` metadata rather than deriving a fragment from a protected card number. Every answer used Markdown fences, so the unchanged strict plain-JSON check scored **0/9**. Each answer also made an unnecessary permitted read; the run is not evidence of minimal tool use.
 
-Those nine tasks plus the eleven already completed under the same frozen final policies provide **20/20 ordinary-task coverage across two runs**, with correct values and tool evidence but **0/20 strict plain-JSON answers**. SQLite was already complete; Snowflake filled the actual gap. This combines coverage, not a new complete 160-answer comparison. The adapters exercise model guidance and do not establish authenticated vendor integration behavior.
+Those nine tasks plus the eleven already completed under the same evaluated policies provide **20/20 ordinary-task coverage across two runs**, with correct values and tool evidence but **0/20 strict plain-JSON answers**. SQLite was already complete; Snowflake filled the actual gap. This combines coverage, not a new complete 160-answer comparison. The adapters exercise model guidance and do not establish authenticated vendor integration behavior.
+
+After this evaluation, the filesystem safe-read list was clarified to explicitly include **targeted excerpts of non-protected file contents**, matching its existing preference for excerpts. The model trial for that lens exercised aggregate and identifier requests through the synthetic adapter, not file contents. Its result predates this six-word clarification; no model claim about excerpt handling is made. Existing safe categories and protected-value restrictions are preserved. The evaluated instruction collection used 3,739 words and 26,501 decoded bytes; the clarification adds six words and 50 bytes.
 
 The revised instructions are therefore documented as **evaluated guidance with known limitations**. The targeted follow-up adds evidence for retained conversations, permitted summaries and ordinary workflows; it does not erase the duplicate-name error or the earlier adversarial failures. The proxy's executable controls and backend permissions remain separate from model compliance. No universal effectiveness, privacy or savings claim follows from these samples.
 
