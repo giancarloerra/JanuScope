@@ -1,7 +1,7 @@
 {
   "name": "januscope",
   "mcpName": "io.github.giancarloerra/januscope",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "Local MCP policy proxy with response redaction, call auditing, tool restrictions, and schema context. Wrap an existing server with a YAML policy.",
   "keywords": [
     "mcp",
