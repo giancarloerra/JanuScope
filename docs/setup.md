@@ -1,6 +1,6 @@
 # Setup and configuration
 
-Start with [installing JanuScope](../README.md#install) and the [general quick start](../README.md#quick-start). This guide covers client formats, a worked PostgreSQL example, custom policies, and the full configuration reference. The [preset catalogue](./lenses.md) includes the existing upstream and wrapped entry for every bundled service.
+Start with the [quick start](../README.md#quick-start). This guide covers client formats, a worked PostgreSQL example, custom policies, and the full configuration reference. The [preset catalogue](./lenses.md) includes the existing upstream and wrapped entry for every bundled service.
 
 ## Client configuration
 
@@ -189,7 +189,7 @@ target: # required
 
 classification:
   public|internal|sensitive # optional lens data-sensitivity label.
-  # When set, `instructions` prepends a short banner to
+  # When set, `instructions` adds a short banner to
   # every tool description and `audit` tags every record
   # with `classification: "<value>"`. Purely informational;
   # enforcement still lives in `block` / `sqlGuard` / `redact`.

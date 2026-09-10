@@ -1,6 +1,6 @@
 # JanuScope Lenses
 
-A **Lens** is a YAML policy preset plus setup notes for one MCP server. It declares the upstream command, tool restrictions, response rules, and other enabled overlays. Start with the [Postgres quick start](../README.md#quick-start), or browse the [complete client entry catalogue](../docs/lenses.md).
+A **Lens** is a YAML policy preset plus setup notes for one MCP server. It declares the upstream command, tool restrictions, response rules, and other enabled overlays. Start with the [quick start](../README.md#quick-start), or browse the [complete client entry catalogue](../docs/lenses.md).
 
 ## Available Lenses
 
