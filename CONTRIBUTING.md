@@ -10,7 +10,7 @@ By submitting a pull request, you agree to the [Contributor License Agreement (C
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js `^22.21.0 || >=24.0.0` for the complete development and release toolchain, matching the locked release tools. The published package's runtime minimum remains Node.js 20.0.0.
 - Git
 
 Optional (for live-probing bundled Lenses against real MCPs):
