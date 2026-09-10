@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import * as nodeModule from "node:module";
 import { tmpdir } from "node:os";
@@ -33,6 +34,62 @@ function run(entry: string, args: string[] = []) {
 }
 
 describe("CLI direct-entry detection", () => {
+  it("delivers a complete JSON check report to a slow pipe reader before exiting", async () => {
+    const path = directory();
+    const server = join(path, "large-catalog.mjs");
+    const names = Array.from(
+      { length: 20_000 },
+      (_, index) => `tool_${String(index).padStart(59, "0")}`,
+    );
+    writeFileSync(
+      server,
+      `import { createInterface } from 'node:readline';
+const tools = ${JSON.stringify(names)}.map(name => ({ name, inputSchema: { type: 'object' } }));
+createInterface({ input: process.stdin }).on('line', line => {
+  const message = JSON.parse(line);
+  if (message.id === undefined) return;
+  const result = message.method === 'initialize'
+    ? { protocolVersion: '2025-03-26', capabilities: { tools: {} }, serverInfo: { name: 'large-catalog', version: '1.0.0' } }
+    : { tools };
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\\n');
+});`,
+    );
+    const config = join(path, "config.json");
+    writeFileSync(
+      config,
+      JSON.stringify({ target: { command: process.execPath, args: [server] } }),
+    );
+    const child = spawn(
+      process.execPath,
+      [...TSX_EXEC_ARGV, CLI, "check", "--config", config, "--timeout", "5000", "--json"],
+      { stdio: ["ignore", "pipe", "pipe"], timeout: 10_000, env: { ...process.env, HOME: path } },
+    );
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let resume: ReturnType<typeof setTimeout> | undefined;
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout.push(chunk);
+      if (stdout.length === 1) {
+        child.stdout.pause();
+        resume = setTimeout(() => child.stdout.resume(), 100);
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    try {
+      const [code, signal] = await once(child, "close");
+      expect(signal).toBeNull();
+      expect(code).toBe(0);
+      expect(Buffer.concat(stderr).toString()).toBe("");
+      expect(JSON.parse(Buffer.concat(stdout).toString())).toMatchObject({
+        ok: true,
+        tools: { allowed: names, blocked: [] },
+      });
+    } finally {
+      clearTimeout(resume);
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+  }, 15_000);
+
   it.runIf(process.platform !== "win32")(
     "runs version and rejects invalid arguments through an actual symlink chain",
     () => {

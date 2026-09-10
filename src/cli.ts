@@ -778,7 +778,17 @@ const invokedDirectly = (() => {
   }
 })();
 if (invokedDirectly) {
-  void main().then((code) => {
+  void main().then(async (code) => {
+    // Preserve the CLI's termination policy, but finish queued pipe writes
+    // before exiting so reports and lens configurations cannot be truncated.
+    await Promise.all(
+      [process.stdout, process.stderr].map(
+        (stream) =>
+          new Promise<void>((resolve, reject) => {
+            stream.write("", (error) => (error ? reject(error) : resolve()));
+          }),
+      ),
+    );
     process.exit(code);
   });
 }

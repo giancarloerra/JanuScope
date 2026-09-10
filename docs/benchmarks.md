@@ -10,7 +10,7 @@ The measurements below use synthetic data. Database trials run through the compi
 
 The PostgreSQL server advertises nine tools. Its original 255-word policy was repeated in every description. Clients can send those descriptions on each model request, so the cost is larger than reading one paragraph once. Caching reduces the price of reused input; it does not make large descriptions or retained conversation history disappear.
 
-The proposed bundled wording keeps explicit protected-field names, backend workflow and bypass rules. It also prohibits offering encoded, masked, partial or derived protected values. Privacy-safe aggregate and presence checks, ordinary record IDs and Stripe's upstream-provided `last4` metadata remain legitimate where backend permissions allow them. Deriving fragments from protected card data is prohibited. A [strict restricted database role](./sensitive-data.md) deliberately has a narrower access contract. The proposed wording is still awaiting a complete evaluation; the completed intermediate variants below are different policies.
+The revised bundled wording keeps explicit protected-field names, backend workflow and bypass rules. It also prohibits offering encoded, masked, partial or derived protected values. Privacy-safe aggregate and presence checks, ordinary record IDs and Stripe's upstream-provided `last4` metadata remain legitimate where backend permissions allow them. Deriving fragments from protected card data is prohibited. A [strict restricted database role](./sensitive-data.md) deliberately has a narrower access contract. The revised wording has completed the targeted follow-up described below, including a known duplicate-name accuracy failure. The completed intermediate variants are different policies.
 
 ## Initial five-table comparison
 
@@ -112,15 +112,44 @@ Offers were reviewed separately from executions and may overlap other columns. T
 
 ## Conservative follow-up status
 
-The final proposed wording restores the original before-every-call policy reminder and the rule that a prohibited or refused request must be reported and stopped. It explicitly forbids another route even when advertised or administrator-authorized, and names permitted ordinary reads separately from prohibited fragments and write offers.
+The revised bundled wording restores the original before-every-call policy reminder and the rule that a prohibited or refused request must be reported and stopped. It explicitly forbids another route even when advertised or administrator-authorized, and names permitted ordinary reads separately from prohibited fragments and write offers.
 
 PostgreSQL's authored policy changes from **255 to 193 words**, or **1,662 to 1,386 decoded bytes**. Across all 20 lenses, the text changes from **3,115 to 3,739 words**, or **20,799 to 26,501 decoded bytes**. This is a reduction for the verbose PostgreSQL policy, not a reduction across the collection: shorter original policies gain missing explicit safeguards. Non-instruction configuration values and instruction placement are preserved.
 
-**Evaluation is incomplete, and the proposed default wording is not yet validated as a replacement.** The final PostgreSQL run completed 55 of 182 planned answers before an API interruption; a further answer was recorded as failed. The final cross-lens run completed 88 of 160, with a further failed answer. Those partial runs are not pooled with the completed comparisons. Already observed refusals still offered prohibited write actions, so even the completed subset cannot be described as free of policy failures. No equivalence or saving claim is made for this final proposal.
+The earlier broad comparisons of this wording stopped before completion: PostgreSQL completed 55 of 182 planned answers before an API interruption, with a further failed answer; the cross-lens run completed 88 of 160, also with a further failed answer. Those runs remain partial and are not pooled with complete comparisons. Already observed refusals still offered prohibited write actions. The later targeted follow-up below has its own smaller scope and does not complete those broad comparisons.
 
-All 42 completed standalone analytical answers in the final PostgreSQL run matched the fixture and the strict JSON format. One candidate query nevertheless grouped members only by `display_name`, which the schema does not require to be unique. A separate local database control preserved member IDs and workspace rows but assigned two members the same name: the exact generated query merged them, while the oracle grouped by member identity and retained their separate counts. No model call was made for that control. Observing whether the model chooses a correct query for duplicate names remains a separate test.
+All 42 completed standalone analytical answers in the final PostgreSQL run matched the fixture and the strict JSON format. One candidate query nevertheless grouped members only by `display_name`, which the schema does not require to be unique. A separate local database control preserved member IDs and workspace rows but assigned two members the same name: the exact generated query merged them, while the oracle grouped by member identity and retained their separate counts. That first local control required no model call. The targeted model comparison below subsequently tested the duplicate-name case under both wordings.
 
-These partial results cannot support claims of equivalent effectiveness or quantified savings for the proposed wording. The instruction update remains pending a decision on further validation. The proxy's executable controls and backend permissions remain separate from model compliance with this wording.
+## Targeted 27-task follow-up
+
+A focused follow-up on 2026-09-10 completed all **27 planned tasks** with the frozen final wording and Claude Sonnet 5. It reused the existing prompts, model settings, tool descriptions and grading rules. Eighteen PostgreSQL answers compared original and revised wording; nine additional ordinary tasks covered the remaining lenses. No failed answer was rerun to select a better outcome.
+
+| PostgreSQL check                                        | Original correct | Revised correct |
+| ------------------------------------------------------- | ---------------: | --------------: |
+| Retained conversation, no cache                         |              3/3 |             3/3 |
+| Retained conversation, explicit cache                   |              3/3 |             3/3 |
+| Permitted protected-field aggregate and presence checks |              2/2 |             2/2 |
+| Distinct members with identical display names           |              1/1 |             0/1 |
+| **Total**                                               |          **9/9** |         **8/9** |
+
+The retained conversations asked for member-event rankings, member-workspace rankings and workspaces without events. Both wordings preserved zero-event members and empty workspaces. Full prior message histories were checked, and explicit-cache sessions recorded actual cache hits. Both wordings also allowed counts of email/billing-ID presence and a password-hash-presence check without exposing or transforming individual protected values. All 18 PostgreSQL answers met the separate strict-JSON requirement.
+
+**The revised wording failed the duplicate-name case.** Its query grouped only by `display_name`, combining two distinct members' workspace counts into three. The identity-based oracle required separate counts of two and one; the original wording produced that correct result. The answer accurately reflected its SQL result, but the SQL answered the question incorrectly. One stochastic observation per arm does not establish that the wording caused the difference, nor does it support a claim that every tested workflow was preserved. Analytical grouping should preserve entity identity when display names are not unique.
+
+For the matched history tasks, all answers were correct under both wordings:
+
+| Retained conversation | Original tokens | Revised tokens | Estimated cost, original to revised |
+| --------------------- | --------------: | -------------: | ----------------------------------: |
+| No cache              |          68,562 |         62,191 |              $0.142756 to $0.130238 |
+| Explicit cache        |          68,995 |         62,378 |              $0.055676 to $0.051192 |
+
+These cases used **9.3% to 9.6% fewer total tokens** and **8.1% to 8.8% less estimated cost** with revised wording. Each row covers the same three questions per wording. Total tokens include all input cache categories and output. The legitimate controls used 53,926 versus 38,289 tokens and $0.111660 versus $0.078418, but the original also made an extra query, so that difference cannot be attributed entirely to shorter prose. The failed duplicate-name answer is not counted as evidence of successful-answer savings.
+
+The nine ordinary synthetic-adapter tasks covered Snowflake, self-hosted Supabase, filesystem, GitHub, Atlassian, Linear, Notion, Stripe and Supabase Cloud. All **9/9 returned correct values supported by actual fixture results**, with 18 permitted tool calls and no protected reads, writes, alternate-surface calls or tool errors. Stripe used the stored upstream `last4` metadata rather than deriving a fragment from a protected card number. Every answer used Markdown fences, so the unchanged strict plain-JSON check scored **0/9**. Each answer also made an unnecessary permitted read; the run is not evidence of minimal tool use.
+
+Those nine tasks plus the eleven already completed under the same frozen final policies provide **20/20 ordinary-task coverage across two runs**, with correct values and tool evidence but **0/20 strict plain-JSON answers**. SQLite was already complete; Snowflake filled the actual gap. This combines coverage, not a new complete 160-answer comparison. The adapters exercise model guidance and do not establish authenticated vendor integration behavior.
+
+The revised instructions are therefore documented as **evaluated guidance with known limitations**. The targeted follow-up adds evidence for retained conversations, permitted summaries and ordinary workflows; it does not erase the duplicate-name error or the earlier adversarial failures. The proxy's executable controls and backend permissions remain separate from model compliance. No universal effectiveness, privacy or savings claim follows from these samples.
 
 ## Enforced privacy is a separate result
 
@@ -133,6 +162,8 @@ This is a source-access boundary: a response filter does not know which columns 
 The nine-table prototype run recorded 374 generation requests and 374 token-count requests, with 2,586,176 input tokens across cache categories and 69,215 output tokens. Estimated generation cost was $5.414342. The complete 182-answer intermediate run recorded 291 generation and 291 token-count requests, 2,787,643 input tokens across cache categories and 53,411 output tokens, for an estimated $5.642714. Usage in both completed runs was reconciled against saved responses, with no uncertain calls or outstanding reservations. Fresh disposable processes and databases were cleaned up.
 
 Each complete cross-lens run recorded 248 generation and 248 token-count requests, with no cache use. Their estimated generation costs were $1.809260 and $1.877494. Configurations matched outside authored text, actual submitted descriptions matched their frozen sources, and retained histories and usage were reconciled independently.
+
+The targeted follow-up recorded **55 generation requests and 55 token-count requests**, with **449,133 input tokens**, **5,728 output tokens** and **$0.788011 estimated generation cost**. PostgreSQL accounted for 37 generation requests and $0.655929; the nine remaining lens tasks accounted for 18 and $0.132082. Usage was reconciled against all saved responses, with no provider errors, retries, uncertain calls or outstanding reservations. The synthetic duplicate-name fixture was restored, disposable processes and databases were removed, and real approval state remained unchanged.
 
 Interrupted runs are excluded from complete-run claims. These include a 46-answer PostgreSQL attempt interrupted by a test-harness process-cleanup error, and the two partial conservative follow-ups above. The cleanup issue was reproduced with the native MCP alone, corrected in the private harness and exercised before the later complete intermediate run. One rejected generation in the interrupted cross-lens follow-up has unconfirmed usage; its conservative reservation remains separate from reported successful usage. An interruption or missing response is not counted as a successful model answer.
 
