@@ -211,6 +211,39 @@ function batchFixture(
   };
 }
 
+function singletonFrameFixture(
+  value: unknown,
+  phase: "initialize" | "tools/list",
+): { config: OverlayConfig; pidFile: string; trafficFile: string } {
+  const directory = mkdtempSync(join(tmpdir(), "januscope-probe-singleton-"));
+  failureFixtures.push(directory);
+  const pidFile = join(directory, "pid");
+  const trafficFile = join(directory, "traffic");
+  const script = `
+    const fs=require('node:fs');
+    fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));
+    let initialized=false;
+    require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+      fs.appendFileSync(${JSON.stringify(trafficFile)},line+'\\n');
+      const msg=JSON.parse(line);
+      if(msg.method==='notifications/initialized'){initialized=true;return;}
+      let result;
+      if(msg.method==='initialize')result={protocolVersion:'2025-03-26',capabilities:{},serverInfo:{name:'singleton-fixture',version:'1'}};
+      else if(msg.method==='tools/list'&&initialized)result={tools:[{name:'expected',inputSchema:{type:'object'}}]};
+      else process.exit(36);
+      const frames=msg.method===${JSON.stringify(phase)}?[${JSON.stringify(value)}]:[];
+      frames.push({jsonrpc:'2.0',id:String(msg.id),result:{tools:[{name:'wrong_id',inputSchema:{type:'object'}}]}});
+      frames.push({jsonrpc:'2.0',id:msg.id,result});
+      process.stdout.write(frames.map(frame=>JSON.stringify(frame)).join('\\n')+'\\n');
+    });
+  `;
+  return {
+    config: { target: { command: process.execPath, args: ["-e", script] } } as OverlayConfig,
+    pidFile,
+    trafficFile,
+  };
+}
+
 async function expectPagesRequested(
   fixture: { pidFile: string; requestsFile: string },
   pages: number,
@@ -312,6 +345,53 @@ function scriptedConfig(body: string): OverlayConfig {
   const script = `const rl=require('node:readline').createInterface({input:process.stdin});let initialized=false;const send=(id,result)=>console.log(JSON.stringify({jsonrpc:'2.0',id,result}));rl.on('line',line=>{const msg=JSON.parse(line);if(msg.method==='initialize'){send(msg.id,{protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'diagnostic-fixture',version:'1'}});return;}if(msg.method==='notifications/initialized'){initialized=true;return;}if(msg.method!=='tools/list'||!initialized)process.exit(13);${body}});`;
   return { target: { command: process.execPath, args: ["-e", script] } } as OverlayConfig;
 }
+
+describe.each([true, false])(
+  "probeTarget singleton frames (verifyProtocol=%s)",
+  (verifyProtocol) => {
+    it.each(["initialize", "tools/list"] as const)(
+      "categorizes null before %s without accepting the following valid response",
+      async (phase) => {
+        const fixture = singletonFrameFixture(null, phase);
+        await expect(
+          probeTarget(fixture.config, { verifyProtocol, timeoutMs: 15_000 }),
+        ).rejects.toMatchObject({
+          code: "INVALID_MCP_RESPONSE",
+          message: "target emitted an invalid JSON-RPC envelope",
+        });
+        await expectTargetStopped(fixture.pidFile);
+        rmSync(fixture.pidFile);
+        expect(readFileSync(fixture.trafficFile, "utf8").trim().split("\n")).toHaveLength(
+          phase === "initialize" ? 1 : 3,
+        );
+      },
+    );
+
+    it.each([0, false, "", 7, true, "synthetic"])(
+      "preserves strict rejection and legacy ID correlation for non-null primitive %j",
+      async (value) => {
+        const fixture = singletonFrameFixture(value, "initialize");
+        const result = probeTarget(fixture.config, { verifyProtocol, timeoutMs: 15_000 });
+        if (verifyProtocol) {
+          await expect(result).rejects.toMatchObject({
+            code: "INVALID_MCP_RESPONSE",
+            message: "target emitted an invalid JSON-RPC envelope",
+          });
+        } else {
+          await expect(result).resolves.toMatchObject({
+            serverInfo: { name: "singleton-fixture", version: "1" },
+            tools: [{ name: "expected" }],
+          });
+        }
+        await expectTargetStopped(fixture.pidFile);
+        rmSync(fixture.pidFile);
+        expect(readFileSync(fixture.trafficFile, "utf8").trim().split("\n")).toHaveLength(
+          verifyProtocol ? 1 : 3,
+        );
+      },
+    );
+  },
+);
 
 describe.each([true, false])(
   "probeTarget JSON-RPC batches (verifyProtocol=%s)",

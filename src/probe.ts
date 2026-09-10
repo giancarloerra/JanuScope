@@ -217,7 +217,10 @@ export async function probeTarget(
           return;
         }
         msg = messages[0]!;
-        if (options.verifyProtocol && (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0")) {
+        if (
+          msg === null ||
+          (options.verifyProtocol && (typeof msg !== "object" || msg.jsonrpc !== "2.0"))
+        ) {
           protocolFailure("target emitted an invalid JSON-RPC envelope");
           return;
         }
