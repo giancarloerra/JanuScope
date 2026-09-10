@@ -77,30 +77,37 @@ sqlGuard:
   readOnly: true
 
 instructions: |
-  READ-ONLY hosted Supabase. This proxy wraps mcp.supabase.com with
-  the `?read_only=true` flag plus proxy-layer block + sqlGuard.
+  STRICT POLICY. Read this carefully before every tool call.
 
-  Read paths the LLM should use:
-  - `list_organizations` / `list_projects` / `get_project` for orientation.
-  - `list_tables` / `list_extensions` / `list_migrations` for schema
-    discovery; `generate_typescript_types` for a typed schema snapshot.
-  - `execute_sql` for SELECT / WITH queries; the proxy rejects any
-    statement containing INSERT / UPDATE / DELETE / DROP / CREATE /
-    ALTER / TRUNCATE / GRANT / etc.
-  - `get_logs` / `get_advisors` for diagnostic introspection.
-  - `list_branches` (read), `list_edge_functions` / `get_edge_function`
-    (read).
+  READ-ONLY hosted Supabase. Keep read_only=true. Use list_tables,
+  list_extensions, list_migrations and generate_typescript_types for
+  orientation, execute_sql for SELECT or WITH, and get_logs or
+  get_advisors or read-only branch/function tools for inspection. Do not
+  request migrations, branch or project mutations or deployments.
+  get_publishable_keys is for client-safe keys only; never request
+  service_role credentials.
 
-  Blocked tools (do not attempt; the proxy refuses the call and
-  the attempt is audited):
-  - `create_project` / `pause_project` / `restore_project`
-  - `apply_migration` (DDL)
-  - `deploy_edge_function` (code publish)
-  - `create_branch` / `delete_branch` / `merge_branch` /
-    `reset_branch` / `rebase_branch`
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
 
-  `get_publishable_keys` returns CLIENT-SAFE keys only. The
-  server-side `service_role` key is never exposed by this MCP.
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, password_hash, api_key, apiKey, token,
+  secret, connection credentials, SSNs, card numbers and JWTs,
+  service_role keys.
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

@@ -13,12 +13,14 @@
  *   - `mode: "allowlist"` (DEFAULT, RECOMMENDED). Reject any
  *     statement whose leading keyword is not on the read-only
  *     allowlist (SELECT, WITH, SHOW, EXPLAIN, DESCRIBE, VALUES,
- *     PRAGMA, TABLE). Robust against function-call mutation
- *     (SELECT dropUsers(1)), against comment-hidden writes
- *     (DROP/**​/TABLE users), and against false positives on
+ *     PRAGMA, TABLE). Rejects known dangerous function patterns
+ *     and comment-hidden writes (DROP followed by a block comment
+ *     and TABLE users), while avoiding false positives on
  *     SELECT ... FOR UPDATE or string literals containing write
  *     keywords. Multi-statement inputs are rejected unless every
- *     statement starts with a read verb.
+ *     statement starts with a read verb. Arbitrary user-defined
+ *     function effects (SELECT dropUsers(1)) and sensitive-column
+ *     access require backend permissions; this is a keyword scanner.
  *
  *   - `mode: "denylist"` (LEGACY). Keyword-blacklist match with
  *     comment collapsing and string-literal blanking. Preserved
@@ -159,8 +161,8 @@ export function createSqlGuardOverlay(options: SqlGuardOverlayOptions): Overlay 
 /**
  * Preprocess SQL for analysis:
  *   - Collapse comments to a single space (not empty string) so
- *     `DROP/**​/TABLE` becomes `DROP TABLE`, preserving word
- *     boundaries that a raw strip would destroy.
+ *     `DROP`, a block comment and `TABLE` become `DROP TABLE`,
+ *     preserving word boundaries that a raw strip would destroy.
  *   - Blank string literals so their content can't cause false
  *     positives (e.g. `WHERE note = 'DELETE FROM x'`).
  *
@@ -287,8 +289,8 @@ function hasEmbeddedWrite(preprocessedStmt: string): boolean {
 
 /**
  * Denylist-mode check (legacy). Uses preprocessed SQL so comments
- * collapse to a space (fixing the DROP/**​/TABLE bypass) and string
- * literals are blanked (fixing WHERE note = 'DELETE FROM x').
+ * collapse to a space (preserving boundaries between DROP and TABLE)
+ * and string literals are blanked (fixing WHERE note = 'DELETE FROM x').
  *
  * Still has documented blind spots: user-defined functions whose
  * names embed verb fragments (dropUsers, purge_audits) don't trip

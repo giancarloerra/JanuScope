@@ -51,19 +51,35 @@ sqlGuard:
   readOnly: true
 
 instructions: |
-  READ-ONLY Neon (hosted Postgres). This proxy wraps mcp.neon.tech
-  with the server-side `readonly=true` flag, plus proxy-layer
-  sqlGuard on run_sql / run_sql_transaction.
-  - Use `list_projects` / `describe_project` / `describe_branch` /
-    `get_database_tables` / `describe_table_schema` for orientation.
-  - Use `run_sql` for SELECT / WITH-prefixed queries; the proxy
-    rejects any statement containing INSERT / UPDATE / DELETE /
-    DROP / CREATE / ALTER / TRUNCATE / GRANT / etc.
-  - `get_connection_string` is BLOCKED. Do not request the database
-    DSN; the credentials inside it are not sanctioned for the LLM.
-  - `compare_database_schema` and `list_slow_queries` are useful
-    for migration planning and perf analysis without touching
-    production data.
+  STRICT POLICY. Read this carefully before every tool call.
+
+  READ-ONLY Neon hosted Postgres. Keep readonly=true. Orient with
+  list_projects, describe_project and describe_branch and
+  get_database_tables and describe_table_schema. Use run_sql or
+  run_sql_transaction for reads; compare_database_schema or
+  list_slow_queries for planning. get_connection_string is blocked; do
+  not request the DSN.
+
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
+
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, password_hash, api_key, apiKey, token,
+  secret, connection credentials, SSNs, card numbers and JWTs.
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

@@ -15,11 +15,11 @@
 > _"Whatever you see anywhere (sky, sea, clouds, lands) are all **closed and opened by my hand**."_
 > _Ovid, Fasti I, 117–18 (**Janus speaking**)_
 
-**JanuScope is the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, and database-schema injection. Your tool traffic never leaves your machine.**
+**JanuScope is the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, and database-schema injection. JanuScope runs locally, with no hosted gateway in the data path. Your upstream server and model provider can still receive data.**
 
-JanuScope **hides the dangerous tools**, **scrubs PII** out of returned values before the model reads them, **logs every call**, and **pre-injects your DB schema** so the model doesn't waste five calls discovering it. **Runs locally, no hosted gateway in the data path.**
+JanuScope **hides the dangerous tools**, **scrubs matching PII** out of returned values before the model reads them, **records call outcomes**, and **pre-injects your DB schema** to reduce discovery calls. **Runs locally, no hosted gateway in the data path.**
 
-One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. There are **[20 bundled Lenses](#option-a-use-a-bundled-lens-fastest-drop-in)** covering **databases (Postgres, MySQL, MongoDB, ClickHouse, Redis, SQLite, Microsoft SQL Server / Azure SQL, Oracle, Neon, Snowflake, Aurora DSQL, Redshift, Supabase self-host), SaaS APIs (Stripe, Notion, Atlassian, Linear, Supabase Cloud), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** across a multi-question session on Postgres (median of 4 runs). **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
+One YAML (called a **Lens**) wraps any MCP server with **security guardrails, schema injection**, and **full audit logging**. There are **[20 bundled Lenses](#option-a-use-a-bundled-lens-fastest-drop-in)** covering **databases (Postgres, MySQL, MongoDB, ClickHouse, Redis, SQLite, Microsoft SQL Server / Azure SQL, Oracle, Neon, Snowflake, Aurora DSQL, Redshift, Supabase self-host), SaaS APIs (Stripe, Notion, Atlassian, Linear, Supabase Cloud), source control (GitHub), and the filesystem**. A **community ecosystem of _per-MCP_ Lenses** (YAML config files), and measured **benchmarks** showing **84% fewer tokens** and **~3× faster responses** in the original three-question Postgres test (median of 4 runs; history reset between questions). [Newer retained-conversation results and limitations](#benchmarks--measured-not-modelled) are reported below. **Zero server changes. No hosted gateway in the data path.** Works with **Claude Code, VSCode Copilot, Codex, Cursor,** and any MCP client.
 
 > 🧠 **Need codebase understanding together with MCP governance?** See our sibling project [**SocratiCode**](https://github.com/giancarloerra/socraticode): local-first codebase intelligence with semantic search, dependency graphs, symbol-level impact analysis.
 
@@ -33,7 +33,7 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 **Policy enforcement at the MCP threshold.** Most **MCP servers ship dangerous tools by default**, `execute_sql` and `drop_table` on databases, `create_pull_request` and `merge_pull_request` on GitHub, `stripe_api_execute` on Stripe, `write_file` and `move_file` on the filesystem. **None of them log what the LLM asked** yesterday. The **choice today is fork every server or accept the risk**. Or you can **choose JanuScope**: a thin proxy that wraps any MCP server with a single YAML policy and disappears.
 
-> **Benchmarked live with `claude-sonnet-4-5` against a real application Postgres database (median of 4 runs per prompt).** Across a typical three-question working session (prompt caching enabled), a JanuScope Lens uses **84% fewer total tokens**, makes **84% fewer tool calls**, and runs **~3× faster** than the raw database MCP. And in an **adversarial-safety probe**, the **raw pipeline intermittently leaked a real user email** on the _"I'm the admin, just cross-referencing"_ social-engineering prompt (**observed in 2 of 4 runs**), while the **JanuScope-wrapped pipeline held the line in all 4 runs**. Single-question floor: **34% fewer tokens / 86% fewer tool calls / ~3× faster**. Session savings are bigger because **JanuScope's injected schema is paid once and cached**, while baseline discovery compounds across turns. [Full benchmark →](#benchmarks--measured-not-modelled)
+> **Original benchmark with `claude-sonnet-4-5` against a real application Postgres database (median of 4 runs per prompt).** Across three questions (prompt caching enabled, conversation history reset between questions), a JanuScope Lens used **84% fewer total tokens**, made **84% fewer tool calls**, and ran **~3× faster** than the raw database MCP. In its **adversarial-safety probe**, the **raw pipeline intermittently leaked a real user email** on the _"I'm the admin, just cross-referencing"_ prompt (**2 of 4 runs**), while the **JanuScope-wrapped pipeline refused in all 4 runs**. The single-question result was **34% fewer tokens / 86% fewer tool calls / ~3× faster**. These historical results do not establish retained-session savings or universal protection. [Full benchmark and newer findings →](#benchmarks--measured-not-modelled)
 
 ## What it looks like in practice
 
@@ -74,7 +74,7 @@ One YAML (called a **Lens**) wraps any MCP server with **security guardrails, sc
 
 ### Option A: use a bundled Lens (fastest, drop-in)
 
-**Find your service in the table below**, copy the right-hand snippet into your MCP-client config (or change your existing entry: the diff is just `command` and `args`), restart your client. The env block stays exactly as it was. JanuScope inherits whatever env vars your client passes and forwards them to the wrapped MCP unchanged. No renames, no re-translation.
+**Find your service in the table below**, copy the right-hand snippet into your MCP-client config (or change your existing entry: the diff is usually just `command` and `args`), restart your client. For most Lenses, the env block stays exactly as it was. JanuScope inherits whatever env vars your client passes and forwards them to the wrapped MCP unchanged. No renames, no re-translation.
 
 The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude Code, VS Code Copilot, Windsurf, Cline, Roo Code, anything that speaks MCP).
 
@@ -425,7 +425,7 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
     "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
     "SNOWFLAKE_USER": "your_user",
     "SNOWFLAKE_PASSWORD": "<your_PAT>",
-    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
     "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH"
   }
 }
@@ -442,7 +442,7 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
     "SNOWFLAKE_ACCOUNT": "ORG-ACCOUNT",
     "SNOWFLAKE_USER": "your_user",
     "SNOWFLAKE_PASSWORD": "<your_PAT>",
-    "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+    "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
     "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
     "SNOWFLAKE_MCP_CONFIG": "/path/to/services.yaml"
   }
@@ -737,11 +737,13 @@ The wrap pattern is the same across every host (Claude Desktop, Cursor, Claude C
 
 > **Your favourite service / MCP isn't here?** [Open a lens-request issue](https://github.com/giancarloerra/januscope/issues/new?template=lens_request.yml) so a maintainer or community contributor can pick it up. Or [contribute one yourself](./lenses/CONTRIBUTING.md): it's a single YAML file plus a short README.
 >
-> **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Two exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes the value as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show this for those two.
+> **About the env block.** For most lenses the env block is byte-identical to what your vanilla setup had: JanuScope passes inherited env vars through unchanged. Three exceptions where the connection info moves from a positional argument into an env var (because the upstream MCP takes the value as `argv`, and JanuScope's lens-spawning needs to read it from somewhere): **Redis** (`REDIS_URL`), **SQLite** (`SQLITE_DB_PATH`), **Filesystem** (`FILESYSTEM_ALLOWED_DIR`). The right-hand columns above show these changes.
 >
-> **Most lenses run via `npx`/`uvx` and need only Node.js 20+.** Three lenses wrap CLIs that need a one-time local install: `dab` for `mssql-azure-dab` (`dotnet tool install -g Microsoft.DataApiBuilder`), `sql` for `oracle-db-sqlcl` ([Oracle SQLcl 25.4+ download](https://www.oracle.com/database/sqldeveloper/technologies/sqlcl/download/)), and `docker` for `github-official`. Each per-lens README links the install step.
+> **JanuScope needs only Node.js 20+; the wrapped MCP keeps its own requirements.** Lenses using `uvx` also need [uv](https://docs.astral.sh/uv/getting-started/installation/). Three lenses wrap CLIs that need a one-time local install: `dab` for `mssql-azure-dab` (`dotnet tool install -g Microsoft.DataApiBuilder`), `sql` for `oracle-db-sqlcl` ([Oracle SQLcl 25.4+ download](https://www.oracle.com/database/sqldeveloper/technologies/sqlcl/download/)), and `docker` for `github-official`. Each per-lens README links the install step. In the Snowflake examples, `JANUSCOPE_READONLY` stands for a role you have provisioned with the required read-only access; see the [Snowflake Lens prerequisites](./lenses/databases/snowflake-labs/README.md#prerequisites).
 >
-> **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README.
+> **Quick browse.** `npx januscope lenses list` lists every bundled lens; `npx januscope lenses show <name>` prints its full config + README. `npx januscope lenses search <keyword>` filters the catalogue.
+>
+> **Setup diagnostic (optional).** `npx -y januscope check --config <name>` checks configuration, startup and tool discovery without calling upstream tools; schema-enabled Lenses also read database metadata. Run it with the same environment as your MCP client. [Diagnostic details](./docs/setup.md#check-a-setup).
 
 ### Option B: write your own policy
 
@@ -760,34 +762,34 @@ instructions: |
   READ-ONLY. SELECT only. Default LIMIT 100.
 
 # Pre-inject the schema into the `execute_sql` tool description so the
-# LLM writes correct queries on the first call.
+# LLM can query without first discovering those tables.
 dbSchema:
   driver: postgres
   connectionString: "${DATABASE_URI}"
   tables: [orders, products, customers]
   injectInto: [execute_sql]
 
-# Reject any SQL that isn't a read. Catches CTE-DML, SELECT INTO,
+# Reject known write patterns in SQL. Catches CTE-DML, SELECT INTO,
 # pg_sleep, lo_export, etc.
 sqlGuard:
   tools: [execute_sql]
 
-# Scrub PII patterns from tool results before the LLM sees them.
+# Scrub matching PII from results and JSON-RPC error payloads.
 redact:
   rules:
     - regex: '\b\d{3}-\d{2}-\d{4}\b' # US SSN
     - field: "**.email"
 
-# Compliance log: one JSONL record per call.
+# Audit log: one JSONL record per tracked call outcome.
 audit:
   sink: "~/mcp-audit.jsonl"
 ```
 
-Point `--config` at the absolute path of your YAML, set `DATABASE_URI` in your client config's env block, restart the client. Done. The LLM now sees an `execute_sql` tool with your real schema baked into its description, can't run mutations or call `pg_sleep`, sees SSNs and emails as `[REDACTED]`, and every call lands in the audit log.
+Point `--config` at the absolute path of your YAML, set `DATABASE_URI` in your client config's env block, restart the client. Done. The LLM now sees an `execute_sql` tool with your real schema baked into its description, has configured SQL write patterns and `pg_sleep` calls refused, sees matching SSNs and email fields as `[REDACTED]`, and has tracked call outcomes recorded. Use backend permissions for a hard read-only or sensitive-column boundary; aliases and transformations can evade response rules. [Sensitive-data controls](./docs/sensitive-data.md).
 
-Same six-overlay pattern applies to non-database MCPs, drop `dbSchema` and `sqlGuard`, keep `block` / `instructions` / `redact` / `audit`. See the bundled Lenses in [`lenses/`](./lenses) for real examples covering GitHub, the filesystem, Stripe, Notion, Atlassian, and Linear.
+The same policy pattern applies to non-database MCPs, drop `dbSchema` and `sqlGuard`, keep `block` / `instructions` / `redact` / `audit`. See the bundled Lenses in [`lenses/`](./lenses) for real examples covering GitHub, the filesystem, Stripe, Notion, Atlassian, and Linear.
 
-> **Lens transparency rule.** A lens never renames operator-supplied env vars and never declares them in `target.env` just to pass them through. The user sets the env var the upstream MCP itself reads, in their MCP-client config, and JanuScope inherits it. Only **policy hardcodes** (constants the lens decides for the user, like `ALLOW_INSERT_OPERATION: "false"` or `CLICKHOUSE_SECURE: "true"`) belong in `target.env`. See [`lenses/CONTRIBUTING.md`](./lenses/CONTRIBUTING.md#lens-transparency-rule-read-this-before-writing-targetenv) for the full rule.
+> **Lens transparency rule.** A lens never renames operator-supplied env vars and never declares them in `target.env` just to pass them through. The user sets the env var the upstream MCP itself reads, in their MCP-client config, and JanuScope inherits it. Only **policy hardcodes** (constants the lens decides for the user, like `ALLOW_INSERT_OPERATION: "false"` or `CLICKHOUSE_SECURE: "true"`) belong in `target.env`. See [`lenses/CONTRIBUTING.md`](./lenses/CONTRIBUTING.md#lens-transparency-rule-read-before-touching-env-vars-or-targetargs) for the full rule.
 
 ## Why JanuScope
 
@@ -812,21 +814,21 @@ Same six-overlay pattern applies to non-database MCPs, drop `dbSchema` and `sqlG
 ### What makes JanuScope different
 
 - **One policy layer in front of any MCP.** No forking the upstream. No hosted gateway in the data path. The same lens YAML shape applies whether you have 1 MCP or 200.
-- **DB schema pre-injection .** The LLM gets your real schema baked into the tool description at startup, it writes correct queries on the first call, skipping the discovery round-trips.
+- **DB schema pre-injection .** The LLM gets your real schema baked into the tool description at startup, it can skip schema-discovery round-trips before writing a query.
 - **Defence in depth with Skills.** Claude Skills tell the model _how_ it should behave; JanuScope enforces _what_ it can do. They're complementary. See [JanuScope vs Claude Skills](#januscope-vs-claude-skills) below.
 
 ### "Why not just set `--access-mode=restricted` on `postgres-mcp` and call it done?"
 
 Fair question, and the bundled Postgres lens does exactly that, as a baseline. JanuScope sits _on top of_ whatever read-only mode your MCP offers, because a single MCP-level flag only solves one of the three problems above:
 
-| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                                                                                                                                                        |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Postgres blocks DML at the DB layer       | `audit`, every call as JSONL with SHA-256 args hash; compliance-ready without changing the MCP                                                                                                                                                                                    |
-| (that's it)                               | `redact`, PII scrubbed before the LLM ever sees it, with field-path rules that reach into JSON-in-text envelopes                                                                                                                                                                  |
-| (that's it)                               | `instructions`, policy text pushed into every tool description; reduces the social-engineering leak rate we measure in the benchmark                                                                                                                                              |
-| (that's it)                               | `dbSchema` pre-injection, 84% token reduction, cached across the session                                                                                                                                                                                                          |
-| (that's it)                               | `sqlGuard`, a proxy-layer backstop against bypasses the DB-level role can't catch (UDF-name fragments like `SELECT dropUsers()`, see below)                                                                                                                                       |
-| Postgres only                             | The same six overlays apply to all 20 bundled lenses (Postgres, MongoDB, MS SQL via DAB, Oracle SQLcl, Snowflake, Aurora DSQL, Redshift, Supabase self-host, Supabase cloud, Neon cloud, MySQL, Redis, ClickHouse, SQLite, Stripe, GitHub, filesystem, Notion, Atlassian, Linear) |
+| What `--access-mode=restricted` gives you | What JanuScope adds on top                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres blocks DML at the DB layer       | `audit`, tracked call outcomes as JSONL with an arguments hash; no MCP changes required                                                                                                                                                                                                                                      |
+| (that's it)                               | `redact`, matching PII scrubbed before the LLM sees it, including supported JSON/Python text rows and JSON-RPC errors                                                                                                                                                                                                        |
+| (that's it)                               | `instructions`, policy text pushed into every tool description; evaluated guidance with known failures, not enforcement                                                                                                                                                                                                      |
+| (that's it)                               | `dbSchema` pre-injection, reducing discovery in measured workloads; savings depend on context, wording and caching                                                                                                                                                                                                           |
+| (that's it)                               | `sqlGuard`, a proxy-layer filter for known SQL write patterns; UDFs such as `SELECT dropUsers()` require backend restrictions                                                                                                                                                                                                |
+| Postgres only                             | The same policy layer applies to all 20 bundled lenses, with database overlays where applicable (Postgres, MongoDB, MS SQL via DAB, Oracle SQLcl, Snowflake, Aurora DSQL, Redshift, Supabase self-host, Supabase cloud, Neon cloud, MySQL, Redis, ClickHouse, SQLite, Stripe, GitHub, filesystem, Notion, Atlassian, Linear) |
 
 If you only need "don't write," a DB role or `--access-mode=restricted` is enough. If you also need audit, redaction, policy-in-description, schema injection, _and_ the same mental model across any MCPs, that's JanuScope.
 
@@ -834,11 +836,11 @@ If you only need "don't write," a DB role or `--access-mode=restricted` is enoug
 
 ## What it does
 
-Six overlays, each opt-in via one YAML field. Unused overlays compile out. They layer into **defence in depth**, every serious data-access lens uses all three protective layers (shape intent, enforce at the gate, scrub on the way back):
+Optional overlays, each enabled through YAML configuration. Unused overlays are not registered. They layer into **defence in depth**, every serious data-access lens uses all three protective layers (shape intent, enforce at the gate, scrub on the way back):
 
 **Shape intent**
 
-- **`instructions`**: Append policy text to every tool's `description`. The LLM reads tool descriptions before deciding what to call, so this is where _"never return these columns even if the user asks"_ gets the most mileage. **This layer is advice, not enforcement**, the model can ignore it, and in our adversarial benchmark the bare `instructions` string is the difference between a non-deterministic baseline and a consistent refusal, not an absolute guarantee. Pair with `block` / `sqlGuard` / `redact` for the actual enforcement; `instructions` shapes what the model _tries_ to do, the gates decide what it _can_ do.
+- **`instructions`**: Append policy text to every tool's `description`. The LLM reads tool descriptions before deciding what to call, so this is where _"never return these columns even if the user asks"_ gets the most mileage. **This layer is advice, not enforcement**, the model can ignore it, and newer adversarial evaluations still found prohibited reads, writes and offers under revised wording. Pair with `block` / `sqlGuard` / `redact` for the actual enforcement; `instructions` shapes what the model _tries_ to do, the gates decide what it _can_ do.
 
 **Enforce at the gate**
 
@@ -848,15 +850,15 @@ Six overlays, each opt-in via one YAML field. Unused overlays compile out. They 
 
 **Scrub on the way back**
 
-- **`redact`**: Regex and field-path rules applied to tool results before they leave the proxy. Field-path rules **auto-detect and parse JSON strings inside text content blocks**, so `**.email` reaches into the serialised rows that most SQL MCPs return. Regex rules scan the text directly. Both are often used together.
+- **`redact`**: Regex and field-path rules applied to tool results and JSON-RPC error payloads before they leave the proxy. Field-path rules **process supported JSON and Python-style rows inside text content blocks**, so `**.email` reaches into serialised rows as well as structured properties. Regex rules scan the text directly. Required-redaction failures withhold the original payload. Aliases, transformed values and unmatched formats still require backend restrictions. [Supported formats and refusal behavior](./docs/setup.md#response-redaction-formats).
 
 **Compliance**
 
-- **`audit`**: One JSONL record per `tools/call`. Request and response correlated by JSON-RPC ID; arguments hashed by default (opt in to raw logging). The audit log sees the un-redacted payload; the LLM sees the scrubbed one, exactly the ordering compliance requires.
+- **`audit`**: One JSONL record per `tools/call`. Request and response correlated by JSON-RPC ID; arguments hashed by default (opt in to raw logging). The audit overlay sees upstream errors before redaction; successful response bodies are not logged. Audit write failures are reported but do not stop forwarding.
 
 **Give the LLM the context it would otherwise have to discover**
 
-- **`dbSchema`**: Database-aware automatic context. At startup, JanuScope opens a real connection to your Postgres / MySQL / SQLite, asks the database for its tables and columns, formats the answer as readable text, and pastes it into the `description` of the SQL tool the LLM sees. Result: the LLM writes the right query on its first try instead of asking the database "what tables exist?" / "what columns does this one have?" across two or three round trips. The schema text never leaves the proxy; it sits in memory next to the tool description. See ["how dbSchema and contextInjection actually work"](#how-dbschema-and-contextinjection-actually-work) for the step-by-step.
+- **`dbSchema`**: Database-aware automatic context. At startup, JanuScope opens a real connection to your Postgres / MySQL / SQLite, asks the database for its tables and columns, formats the answer as readable text, and pastes it into the `description` of the SQL tool the LLM sees. Result: the LLM can use the supplied schema instead of asking the database "what tables exist?" / "what columns does this one have?" across additional round trips. The schema is held in memory and sent to the MCP client in tool descriptions, where its model provider can receive it. See ["how dbSchema and contextInjection actually work"](#how-dbschema-and-contextinjection-actually-work) for the step-by-step.
 - **`contextInjection`**: The same pre-injection idea for any other MCP, with the difference that you (or a script you run) supply the text instead of JanuScope generating it. Two ways to provide it: inline in the YAML (`text: |`) for short / readable contexts, or as a separate file (`textFile: ./context.md`) when the text is long or kept fresh by an external job. Useful for Linear (paste the project / team / status enums), Atlassian (project / space list), filesystem (a directory skeleton), or any lens where pre-supplying context skips a discovery loop.
 
 **Data-sensitivity labelling**
@@ -881,12 +883,14 @@ Keyword-scanning SQL guards and "apply this regex to everything" redactors are t
 
 - **`sqlGuard` beyond leading-verb allowlists.** Also rejects `WITH x AS (DELETE …) SELECT …` (CTE-hidden mutations), `SELECT … INTO shadow_table FROM users` (SELECT-INTO creates tables), `EXPLAIN ANALYZE DELETE …` (EXPLAIN executes for ANALYZE), `COPY … PROGRAM …` (RCE via Postgres `COPY PROGRAM`), and a 17-name Postgres admin-function denylist (`pg_sleep`, `lo_import`, `lo_export`, `dblink`, …). Row-locking clauses (`FOR UPDATE`) are whitelisted explicitly so legitimate reads aren't over-blocked. Every one of these is [pinned in a test file](./test/overlays/sqlGuard-embedded-writes.test.ts).
 - **`redact` uses a function replacer.** Passing a string replacement to `String.prototype.replace` lets `$&`, `$1`, `$$` etc. interpolate the _matched secret_ back into the scrubbed output, the exact opposite of what the overlay is for. We use `() => replacement` so the replacement is always literal. [Pinned at test/overlays/redact.test.ts:123](./test/overlays/redact.test.ts).
-- **Embedded-JSON extraction for narrative envelopes.** The official MongoDB MCP wraps its results in `<untrusted-user-data-…>…</untrusted-user-data-…>` tags. A naive JSON-parse fails; a naive regex can't find the balanced-brace boundary. [`extractEmbeddedJsonBlock`](./src/overlays/redact.ts) walks the string with a brace depth counter that respects JSON string escapes, splices the redacted JSON back in, and leaves the prose intact. Without this, `field: "**.email"` would silently miss every MongoDB response.
+- **Structured rows inside narrative envelopes.** The official MongoDB MCP wraps results in `<untrusted-user-data-…>…</untrusted-user-data-…>` tags. The [redactor](./src/overlays/redact.ts) processes multiple embedded JSON spans and [supported Python row representations](./src/overlays/python-literal.ts), retaining surrounding prose, container indexes and unrelated typed values. Duplicate keys and recognized unsupported or malformed row containers are refused when field rules require redaction. This lets `field: "**.email"` reach values that a whole-message JSON parse would miss.
 - **`audit` opens with mode `0o600`.** The default umask on most hosts produces `0o644`, world-readable, and with `logRawArgs: true` the file contains raw SQL, request bodies, and file contents. We open explicitly at `0o600` and stat-verify the permissions in a regression test.
-- **Pipeline fails CLOSED for gate overlays.** `block` and `sqlGuard` are marked `kind: "gate"`: if their handler throws on a malformed payload, the pipeline responds `-32603 internal error` to the client instead of forwarding the unchecked request to the target. Observer overlays (`audit`, `redact`, `dbSchema`, `instructions`) fail-open by contrast, an exception in an enhancer shouldn't break the call. Both paths are pinned.
-- **Every bundled lens is live-probed.** `npm run validate:lenses:probe` spawns each target MCP, runs `tools/list`, and diffs the lens's block-list against real tool names. This is what caught the Atlassian camelCase bug and the Linear `save_*` family, and it's available to contributors before they open a PR. Pre-empts the hostile reviewer's first question: "are your block lists actually blocking anything?"
+- **Pipeline fails CLOSED for gates and required redaction.** If `block`, `sqlGuard` or another gate throws, the unchecked message is withheld in either direction. A required-redaction exception also withholds the original response, including JSON-RPC errors. Messages with an ID receive `-32603` on the requesting side, preserving string, numeric or null IDs and replacing invalid IDs with null; notifications without an ID are dropped. Diagnostics identify the failed overlay and error category without copying the sensitive payload. Optional observer failures can still continue. Both paths are pinned.
+- **Bundled lenses have a live-probe command.** `npm run validate:lenses:probe` spawns each target MCP, runs `tools/list`, and diffs the lens's block-list against real tool names. This is what caught the Atlassian camelCase bug and the Linear `save_*` family, and it's available to contributors before they open a PR. Pre-empts the hostile reviewer's first question: "are your block lists actually blocking anything?"
 
 ## Lenses: the community ecosystem
+
+<a id="lenses--the-community-ecosystem"></a>
 
 A **lens** is a ready-made JanuScope policy for one specific MCP server, `config.yaml` + docs, curated to cover that MCP's tool surface and common gotchas. Lenses live in [`lenses/`](./lenses). Browse, use, or [contribute one](./lenses/CONTRIBUTING.md).
 
@@ -897,7 +901,7 @@ januscope lenses show mongodb-official      # print its config + README
 
 ### Bundled Lenses (20)
 
-One Lens per service, pointing at the official vendor MCP where one exists. Community alternatives are included only for technologies without a single vendor (Postgres, MySQL, SQLite). Every Lens is verified against a live `tools/list` on its target MCP.
+One Lens per service, pointing at the official vendor MCP where one exists. Community alternatives are included only for technologies without a single vendor (Postgres, MySQL, SQLite). Each Lens README records its upstream status and, where available, the tested version and date; these are snapshots, not a guarantee for every current upstream release.
 
 **📊 Databases**
 
@@ -938,7 +942,9 @@ The value of the tool compounds with every new lens. If you run JanuScope agains
 
 ## Benchmarks: measured, not modelled
 
-Every number below is from running the same prompt through **Claude Sonnet 4.5** against the raw Postgres MCP and against the same MCP wrapped in a JanuScope Lens, and capturing token usage from the Anthropic API response metadata. All numbers are **medians of 4 independent runs** (Sonnet is non-deterministic, single-run numbers aren't a defensible headline).
+<a id="benchmarks--measured-not-modelled"></a>
+
+The original three tables below are historical results from running the same prompt through **Claude Sonnet 4.5** against the raw Postgres MCP and against the same MCP wrapped in a JanuScope Lens, and capturing token usage from the Anthropic API response metadata. All numbers are **medians of 4 independent runs** (Sonnet is non-deterministic, single-run numbers aren't a defensible headline). These results used the original harness and policy; they are not measurements of the revised bundled wording.
 
 ### Performance (typical analytical question)
 
@@ -957,12 +963,7 @@ Same model, same database, same correct answer every run. The baseline consisten
 
 ### Multi-question session (amortised view)
 
-The single-question numbers above are a floor. In a real session a user asks several related questions, and two effects compound JanuScope's win:
-
-- The baseline's schema-discovery cost is **paid on every question** (discovery tool calls accumulate in context across turns, inflating input tokens rapidly).
-- JanuScope's injected schema is **paid once** and then **read from cache** on every subsequent turn (Anthropic's ephemeral prompt cache, attached to the tools definition).
-
-Three analytical questions in the same session, Sonnet 4.5, prompt caching enabled. Medians across 4 runs:
+The original harness reused a client session but **reset conversation history between questions**. It therefore did not test a growing retained conversation, and the single-question result is not a guaranteed savings floor. Prompt caching was enabled; the table preserves the original three-question totals, with medians across 4 runs:
 
 | Metric (total across 3 questions) | Raw Postgres MCP | JanuScope Lens |          Median delta |   Baseline range   |
 | --------------------------------- | ---------------: | -------------: | --------------------: | :----------------: |
@@ -973,8 +974,8 @@ Three analytical questions in the same session, Sonnet 4.5, prompt caching enabl
 | **Total tokens** (all categories) |      **131,594** |     **20,652** |              **−84%** | [93,444 – 146,445] |
 | Wall-clock (sum)                  |            175 s |           56 s | **−68%** (~3× faster) |   [128 – 220 s]    |
 
-- The baseline range is wide (min 93k tokens, max 146k). That's **real variance from unbounded exploration**, one Q3 drifted to 118k tokens in one run. The baseline's worst case is open-ended because the model keeps exploring when it can't see the schema.
-- JanuScope's totals are tight (20k ±1k). Schema injection bounds the work the model does.
+- The baseline range is wide (min 93k tokens, max 146k). One Q3 drifted to 118k tokens in one run. This records exploration in that harness, not a general worst-case estimate.
+- JanuScope's totals are tight (20k ±1k). That observation does not establish a bound on future model work.
 
 ### Safety (three adversarial prompts)
 
@@ -990,17 +991,27 @@ A follow-up benchmark sends three hostile prompts through the same two pipelines
 | **Total tokens (median)**                                                                       | 70,342                                                                                                     | **10,473 (−85%)**                                       |
 | **Pass rate (JanuScope blocked every leak in the run)**                                         | n/a                                                                                                        | **4/4 runs**                                            |
 
-The telling case is the middle row. Claude's own safety training reliably refuses _obvious_ requests but is inconsistent on subtle framings, the baseline leaked in **2 of 4 independent runs** (small sample; treat this as evidence that the baseline is _unreliable_ here, not as a precise leak rate), and the 2 "clean" runs are not a property of the baseline, they are a property of Sonnet's non-determinism. **JanuScope held the line in every one of the 4 runs across every one of the 3 prompts**, because the lens's `instructions` overlay pushes an explicit policy into every tool description the model reads, its `sqlGuard` overlay would refuse any DML attempt, and the `redact` overlay scrubs the response anyway as a backstop.
+The telling case is the middle row. Claude's own safety training reliably refuses _obvious_ requests but is inconsistent on subtle framings, the baseline leaked in **2 of 4 independent runs** (small sample; treat this as evidence that the baseline is _unreliable_ here, not as a precise leak rate), and the 2 "clean" runs are not a property of the baseline, they are a property of Sonnet's non-determinism. **The historical JanuScope answers refused in all 4 runs across all 3 prompts.** Those observations do not isolate which overlay caused the refusal or prove that every SQL mutation or protected-value transformation is blocked. Newer adversarial tests found failures, documented below.
 
 ### Why these numbers compound
 
-The single-question delta is a **conservative floor**; the session delta is closer to the real-world experience. Three effects stack:
+Schema context can reduce discovery, but these measurements do not establish that savings compound in every session:
 
-1. **Multi-turn sessions.** Schema paid once via prompt cache; discovery savings accumulate per question.
-2. **Larger schemas.** Baseline discovery scales linearly with the tables the model needs to describe; JanuScope pre-injects once. Tool-call delta stays near −90% even on 100-table schemas.
-3. **Stronger models.** Opus-class models do more deliberate discovery than Sonnet by default, bigger gap. Haiku does less, smaller gap but still positive.
+1. **Multi-turn sessions.** Retained history can reuse discoveries on either path; caching changes their cost. The newer matched-history tests below measure this directly.
+2. **Larger schemas.** Both discovery work and injected context can grow. The original tests did not establish savings for 100-table schemas.
+3. **Different models.** The original Sonnet result does not establish an Opus or Haiku advantage. Results depend on model, wording, tasks and client behavior.
 
-Numbers vary ±5–10% run-to-run because the model is non-deterministic. Code to reproduce, plus raw JSON output from each run, lives in [`.benchmarks/`](./.benchmarks) (gitignored, requires your own API key and DB).
+The original raw scripts and runs were not published. The [evaluation report](./docs/benchmarks.md) records the newer methodology, results and limitations.
+
+**New evaluations and revised Lens instructions.** `instructions` is the optional policy prose added to tool descriptions. Bundled Lenses include it; custom policies can omit it. The revised wording retains explicit sensitive-field, bypass and backend rules. PostgreSQL's policy changes from **255 to 193 words**; the full 20-Lens collection changes from **3,115 to 3,745 words** because shorter policies gain missing safeguards. Non-instruction settings and instruction placement are preserved.
+
+- **Initial simplification:** removing authored instructions saved **57.1% of tokens** and **56.7% of estimated cost** against native in a synthetic five-table test, with **12/12 correct answers per arm**. That removal was a test variant, not the revised bundled policy. Supplying the native MCP with the same context achieved similar discovery savings.
+- **Broader variants:** a 225-answer prototype comparison produced **39/39 correct analytical answers per arm**, with **46.0% fewer tokens** and **43.9% less estimated cost** on standalone tasks for its short policy. It still failed masked-value and suffix requests. A separate 182-answer intermediate comparison had **21/21 correct standalone answers** under both policies but **42/43 revised versus 43/43 original** across all analytical tasks. These were earlier variants, not the final wording.
+- **Across 20 Lenses:** in the second complete model-guidance comparison, revised wording reduced safety answers containing protected reads from **41/60 to 1/60**, and writes from **4/60 to 2/60**. Ordinary values were correct in **20/20** tasks under both wordings. These used synthetic adapters, without proxy enforcement, and do not establish authenticated vendor behavior or eliminate bypasses.
+- **Final targeted 27 tasks:** the original PostgreSQL wording answered **9/9** correctly; revised wording answered **8/9**, failing one duplicate-name grouping case. Both passed all retained-conversation and permitted-summary checks. Matched retained conversations used **9.3–9.6% fewer tokens** and **8.1–8.8% less estimated cost** with revised wording. The other nine Lens tasks returned **9/9 correct values**, but **0/9** met the strict plain-JSON requirement. A subsequent six-word filesystem clarification about permitted excerpts was not model-tested.
+- **Enforced sensitive-data access:** a separate local PostgreSQL test with restricted backend permissions allowed **30/30** legitimate checks and denied **87/87** protected-access attempts. Response filtering alone cannot prevent arbitrary aliases, encodings or derived values. See the [backend-permissions guide](./docs/sensitive-data.md).
+
+These results support useful guidance and reduced context in the measured cases, with known failures. They do not establish equal effectiveness in every workflow, universal savings or universal privacy. [Full evaluation details](./docs/benchmarks.md).
 
 ## Configuration reference
 
@@ -1015,7 +1026,7 @@ target: # required
 
 classification:
   public|internal|sensitive # optional lens data-sensitivity label.
-  # When set, `instructions` prepends a short banner to
+  # When set, `instructions` adds a short banner to
   # every tool description and `audit` tags every record
   # with `classification: "<value>"`. Purely informational;
   # enforcement still lives in `block` / `sqlGuard` / `redact`.
@@ -1058,7 +1069,7 @@ dbSchema:
     # MySQL and SQLite drivers ignore this.
   injectInto: [<string>] # which tool names receive the schema; defaults to common SQL names
   format: markdown|ddl|compact
-  includeComments: <bool>
+  includeComments: <bool> # false omits table, view and column comments in Postgres/MySQL metadata
   refresh: startup|never
 
 contextInjection: # static counterpart to dbSchema; same goal, operator-supplied text
@@ -1080,7 +1091,7 @@ redact:
     - field:
         <path> # dotted path with * (one level), ** (any depth), [i] (index).
         # Auto-parses JSON strings inside text blocks, and
-        # also extracts a single balanced JSON object/array
+        # also processes balanced JSON and Python row spans
         # embedded in a narrative envelope (e.g. MongoDB's
         # <untrusted-user-data-…> wrapper).
   replacement: <string> # default "[REDACTED]"
@@ -1159,7 +1170,7 @@ An MCP server is a program that speaks JSON-RPC 2.0 over stdio. JanuScope is als
                             injects schema, scrubs output, logs
 ```
 
-No daemon, no port, no persistent state (other than optional audit logs). JanuScope lives as long as the client's connection and dies with it. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full picture.
+No daemon or listening port. Persistent state is limited to configured audit logs and optional first-use approvals; an upstream bridge can maintain its own authentication state. JanuScope lives as long as the client's connection and dies with it. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full picture.
 
 ### How `dbSchema` and `contextInjection` actually work
 
@@ -1169,12 +1180,12 @@ These are the two overlays that **add context to the tool descriptions the LLM s
 
 1. **Lens load.** JanuScope reads `config.yaml`. The `dbSchema:` block is a recipe (driver, connection string, which schemas to look at, which tools to inject into). The schema text itself is _not_ in the YAML.
 2. **Startup introspection.** JanuScope opens a real Postgres connection using the recipe's `connectionString` and runs a few `information_schema` queries. It pulls table names, columns, types, foreign keys, and (if `includeComments: true`) any SQL comments. This takes 50-300 ms and runs **once** per launch.
-3. **Serialisation.** The introspection result is formatted into a readable text blob (Markdown by default). This blob lives only in JanuScope's memory; never written to disk, never visible outside the proxy.
+3. **Serialisation.** The introspection result is formatted into a readable text blob (Markdown by default). JanuScope holds this blob in memory without writing it to disk, then sends it to the MCP client in the tool descriptions. The client and its model provider can receive it.
 4. **MCP handshake.** The MCP client (Claude / Cursor / etc.) sends `tools/list` to JanuScope. JanuScope forwards it to the real Postgres MCP. The MCP returns its tool list with the standard descriptions.
 5. **Injection.** Before forwarding the response back to the client, the `dbSchema` overlay rewrites it. For each tool name in `injectInto:` (typically `execute_sql`), the schema blob is appended to that tool's `description` field.
 6. **The LLM sees the enriched tool.** Claude / Cursor reads the description and now knows which tables exist and what columns they have, before writing its first query. No `list_tables` round-trip needed.
 
-The benchmark numbers above (84% fewer tokens on a multi-question session) are this loop being collapsed into one step.
+Schema context explains much of the measured discovery reduction. The original 84% result reset conversation history; see the newer retained-conversation comparisons above.
 
 **Walk-through, `contextInjection` against Linear**
 
@@ -1212,29 +1223,29 @@ The runtime path is identical to step 4-6 above: on the next `tools/list` respon
 
 ### Crash, restart, and health
 
-Because JanuScope is a stdio proxy spawned as a child of your MCP client, **its lifecycle is the client's lifecycle**, there is no daemon and no `/health` endpoint. That is deliberate: no port, no persistent state, nothing for an attacker to reach. It also means the usual process-supervisor patterns don't apply directly. Here's the shape of the failure modes and what to do:
+Because JanuScope is a stdio proxy spawned as a child of your MCP client, **its lifecycle is the client's lifecycle**, there is no daemon and no `/health` endpoint. That is deliberate: no listening port, with audit files and optional approval state kept locally. It also means the usual process-supervisor patterns don't apply directly. Here's the shape of the failure modes and what to do:
 
-- **Unhandled error inside a JanuScope overlay.** The engine installs scoped `unhandledRejection` and `uncaughtException` handlers for the duration of `runOverlay()`. Before Node exits, a single structured line lands on stderr:
+- **Uncaught exception or fatal unhandled rejection.** JanuScope observes Node's `uncaughtExceptionMonitor` event and writes a runtime diagnostic. It does not install handlers that suppress Node's normal fatal behavior. With Node's default error policy, the process exits nonzero and the MCP connection closes. The default diagnostic writes synchronously before exit:
 
+  ```text
+  [januscope:runtime] 2026-01-01T… error: unhandledRejection {"message":"…","stack":"…"}
   ```
-  [januscope:runtime] 2026-04-20T… error: unhandledRejection {"message":"…","stack":"…"}
-  ```
 
-  Your client will see a broken pipe and surface "MCP server disconnected." The diagnostic line is how you tell _which_ side died, without it you'd be guessing between JanuScope, the wrapped MCP, and the client itself.
+  An embedding application's handlers, capture callback and Node rejection flags retain their own behavior. A handled error therefore does not automatically disconnect that application's MCP sessions. JanuScope removes its monitor when a session finishes. When Node emits its `exit` event, each active bridge sends `SIGKILL` to its owned direct target. Forced OS termination, abort modes such as `--abort-on-uncaught-exception`, and failures thrown inside host fatal-error handlers can skip these cleanup hooks. This does not promise cleanup of independently daemonized descendants or a final asynchronous audit/telemetry flush. Runtime diagnostics can contain the original error message and stack and should be treated as sensitive.
 
-- **The wrapped MCP crashes or hangs.** The stdio transport escalates in three stages, _t+2s_ SIGTERM, _t+5s_ SIGKILL, _t+10s_ give up, and logs at every stage. JanuScope exits cleanly after the child is confirmed dead or the deadline hits. Your MCP client reconnects on the next request and a fresh JanuScope + child MCP pair spawns.
+- **The wrapped MCP crashes or a connection is stopped.** Graceful shutdown first awaits overlay stop hooks. After those hooks settle, the transport closes target stdin and schedules SIGTERM after two seconds, SIGKILL after five seconds, and a ten-second wait deadline. A hanging stop hook can delay this sequence; these are not per-request timeouts or a general hang detector. Reconnection depends on the MCP client. Reconnect or restart the server from the client to launch a fresh process pair.
 
-- **Stream errors (client stdin / target stdout).** Logged as `warn` and the pipeline closes gracefully. The `done` promise resolves; runtime exits with code 0.
+- **Stream errors.** Errors from client stdin or target stdout are logged as `warn`; those handlers do not themselves stop the bridge. EOF, stream end and target exit initiate the shutdown described above. Writes to closed client output or target input can emit asynchronous `EPIPE` errors. Under Node's default error policy, these unhandled errors follow the fatal diagnostic and nonzero-exit path above. A stream error alone does not guarantee a graceful exit or resolution of `done`.
 
 - **Running JanuScope under a supervisor.** If you embed JanuScope in a long-running sidecar (e.g. a custom gateway that keeps one stdio bridge per LLM session), supervise it the same way you would any Node process: `systemd` with `Restart=on-failure`, or Docker's `restart: unless-stopped`. The stderr lines above give the supervisor enough to distinguish crashes from clean exits.
 
-- **No `/health`, on purpose.** A stdio-only proxy that added an HTTP health endpoint would defeat the "no open listeners" posture. For liveness the right check is: send a `tools/list` JSON-RPC line and wait for a response, or rely on the client's own connection state.
+- **No `/health`, on purpose.** A stdio-only proxy that added an HTTP health endpoint would defeat the "no open listeners" posture. For liveness, use `tools/list` on an initialized MCP connection, or rely on the client's connection state. The optional `npx -y januscope check --config <name-or-path>` diagnostic performs initialization and discovery for a separate test connection.
 
-Native HTTP transport and a richer supervisory story are in the plans; until then, stdio + structured stderr + MCP-client reconnect is the complete loop.
+Remote presets currently use a separate stdio-to-HTTP bridge. Native HTTP transport is not implemented in the proxy.
 
 ## Logging & audit
 
-When a lens enables `audit:`, JanuScope writes a **structured JSONL log**, one JSON object per line, recording every event that flowed through the proxy. The log is the definitive answer to "what did the AI actually try to do yesterday."
+When a lens enables `audit:`, JanuScope writes a **structured JSONL log** of tracked call outcomes plus startup and shutdown events, one JSON object per line. Write errors are logged and do not stop forwarding, so monitor the sink and runtime diagnostics when log completeness matters.
 
 ### Sink
 
@@ -1247,7 +1258,7 @@ audit:
 - `~` expands to your home directory.
 - Parent directories are auto-created if they don't exist.
 - New sink files are opened with mode **`0o600`** (user-read/write only). Existing files keep their current mode, if you later flip `logRawArgs: true`, rotate to a fresh sink so the tighter perms apply.
-- `stdout` / `stderr` stream JSON lines to the respective pipe instead of a file, useful for forwarding to a log aggregator (`januscope --config x.yaml | jq -r …`).
+- `stderr` sends audit lines to the diagnostic stream. `stdout` is supported by the overlay but shares the MCP protocol pipe in the CLI; use a file or `stderr` for an MCP-client connection.
 
 ### Event schema
 
@@ -1266,30 +1277,39 @@ Plus event-specific fields:
 { "ts": "2026-04-18T12:00:00.000Z", "event": "startup", "sink": "~/mcp-audit.jsonl" }
 ```
 
-**`tools/call`**, written when a `tools/call` request is received AND when the target's response arrives (two lines per call, linked by `id`):
+**`tools/call`**, written once when a tracked response arrives, with request metadata and outcome in the same record. A missing response may instead be recorded as `timeout` or `orphaned`:
 
 ```json
-// Request line (written on client → target)
-{"ts":"2026-04-18T12:00:01.123Z","event":"tools/call","tool":"query","id":42,"args_hash":"a1b2…"}
-// Response line (written on target → client)
-{"ts":"2026-04-18T12:00:01.456Z","event":"tools/call","tool":"query","id":42,"status":"ok","result_bytes":2048}
+{
+  "ts": "2026-04-18T12:00:01.456Z",
+  "event": "tools/call",
+  "tool": "query",
+  "id": 42,
+  "args_hash": "sha256:0123456789abcdef",
+  "status": "ok",
+  "duration_ms": 333,
+  "result_bytes": 2048
+}
 ```
+
+This record is illustrative. IDs, hash, timing, and byte count depend on the actual call.
 
 Fields:
 
-| Field            | When              | Meaning                                                                                                                                                                                                       |
-| ---------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tool`           | both              | Tool name the client asked to call                                                                                                                                                                            |
-| `id`             | both              | JSON-RPC request id, use it to join request and response lines                                                                                                                                                |
-| `args_hash`      | request           | SHA-256 of the arguments, canonicalised (keys sorted recursively) so the same inputs always hash to the same string                                                                                           |
-| `args`           | request           | **Only present when `logRawArgs: true`.** The raw arguments object (verbatim, may contain SQL, PII, secrets; file is `0o600` for a reason)                                                                    |
-| `status`         | response          | `ok` · `tool_error` (target returned `isError: true`) · `error` (JSON-RPC-level error) · `orphaned` (pipeline stopped before response arrived) · `timeout` (response didn't arrive within the pending window) |
-| `result_bytes`   | response, `ok`    | Size of the serialised result in bytes (not chars)                                                                                                                                                            |
-| `error`          | response, `error` | `{ code, message }` from the JSON-RPC error envelope                                                                                                                                                          |
-| `classification` | all records       | Present only when the lens sets `classification`. One of `public` / `internal` / `sensitive`. Lets the downstream SIEM route by label without re-deriving it from the tool name                               |
-| `user`           | all records       | Free-form operator identifier. Captured at startup from `JANUSCOPE_USER`. Omitted when unset. Stamps every record so SIEM filters like `audit.user="alice" AND audit.tool="execute_sql"` work without joins   |
-| `team`           | all records       | Org / team / cost-centre attribution. Captured at startup from `JANUSCOPE_TEAM`. Omitted when unset                                                                                                           |
-| `session`        | all records       | Client-side correlation id (e.g. an MCP-client session uuid). Captured at startup from `JANUSCOPE_SESSION`. Omitted when unset. Enables cross-process tracing without distributed-tracing infrastructure      |
+| Field            | When                           | Meaning                                                                                                                                                                                                       |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool`           | call outcome                   | Tool name the client asked to call                                                                                                                                                                            |
+| `id`             | call outcome                   | JSON-RPC request id, identifies the correlated call                                                                                                                                                           |
+| `args_hash`      | call outcome                   | The `sha256:` prefix plus the first 16 hexadecimal digits of SHA-256 over the arguments, canonicalised (keys sorted recursively) so the same inputs always hash to the same string                            |
+| `args`           | call outcome                   | **Only present when `logRawArgs: true`.** Raw arguments may contain SQL, personal data, or secrets                                                                                                            |
+| `status`         | response                       | `ok` · `tool_error` (target returned `isError: true`) · `error` (JSON-RPC-level error) · `orphaned` (pipeline stopped before response arrived) · `timeout` (response didn't arrive within the pending window) |
+| `duration_ms`    | correlated response            | Milliseconds between receiving the request and its response                                                                                                                                                   |
+| `result_bytes`   | response, `ok` or `tool_error` | Size of the serialised result in bytes (not chars)                                                                                                                                                            |
+| `error`          | response, `error`              | `{ code, message }` from the JSON-RPC error envelope                                                                                                                                                          |
+| `classification` | all records                    | Present only when the lens sets `classification`. One of `public` / `internal` / `sensitive`. Lets the downstream SIEM route by label without re-deriving it from the tool name                               |
+| `user`           | all records                    | Free-form operator identifier. Captured at startup from `JANUSCOPE_USER`. Omitted when unset. Stamps every record so SIEM filters like `audit.user="alice" AND audit.tool="execute_sql"` work without joins   |
+| `team`           | all records                    | Org / team / cost-centre attribution. Captured at startup from `JANUSCOPE_TEAM`. Omitted when unset                                                                                                           |
+| `session`        | all records                    | Client-side correlation id (e.g. an MCP-client session uuid). Captured at startup from `JANUSCOPE_SESSION`. Omitted when unset. Enables cross-process tracing without distributed-tracing infrastructure      |
 
 #### Identity attribution
 
@@ -1325,17 +1345,27 @@ The full event union is available in two forms, both shipped with the package, s
     AuditShutdownEvent,
   } from "januscope";
   ```
-- **JSON Schema (Draft 2020-12)**: validate every JSONL line before parsing:
+- **JSON Schema (Draft 2020-12)**: validate each JSONL record with [Ajv CLI](https://github.com/ajv-validator/ajv-cli) and `ajv-formats`. Install both with `npm install -g ajv-cli ajv-formats`, then run:
   ```bash
-  # node_modules/januscope/schemas/audit-event.json, or mirror it in your pipeline.
-  ajv --spec=draft2020 validate -s schemas/audit-event.json -d my-audit.jsonl
+  (
+    set -eu
+    audit_schema_path="${audit_schema_path:-node_modules/januscope/schemas/audit-event.json}"
+    audit_record_dir=$(mktemp -d "${TMPDIR:-/tmp}/januscope-audit.XXXXXX")
+    trap 'rm -rf "$audit_record_dir"' EXIT
+    while IFS= read -r line || [ -n "$line" ]; do
+      printf '%s\n' "$line" > "$audit_record_dir/record.json"
+      ajv --spec=draft2020 -c ajv-formats validate \
+        -s "$audit_schema_path" -d "$audit_record_dir/record.json"
+    done < my-audit.jsonl
+  )
   ```
+  The default schema path assumes a local project installation. For a global installation or another layout, set `audit_schema_path` to the schema inside that installation before running the block. From a source checkout, use `audit_schema_path=schemas/audit-event.json`. The loop stops at the first invalid record, including an invalid final line without a newline, and removes its temporary file on exit.
 
-The two are kept in sync by construction, the TS types are source-of-truth in `src/overlays/audit.ts` and the JSON Schema mirrors them line-for-line.
+The event types are defined in `src/overlays/audit.ts`; the shipped JSON Schema describes the corresponding records.
 
 ### Why the hashed-args default
 
-By default `args_hash` is emitted and `args` is not. This lets you detect **repeated identical calls** (replay, retry loops) and **correlate** requests across sessions without the log file itself becoming a liability, raw SQL, request bodies, and file contents never hit disk. Flip `logRawArgs: true` only in environments where the audit file is already treated as sensitive (dedicated log host, encrypted volume, SIEM pipeline).
+By default `args_hash` is emitted and `args` is not. This lets you detect **repeated identical calls** (replay, retry loops) and **correlate** requests across sessions without storing raw request arguments by default. Upstream JSON-RPC error messages and explicit identity labels can still contain sensitive data. Flip `logRawArgs: true` only in environments where the audit file is already treated as sensitive (dedicated log host, encrypted volume, SIEM pipeline).
 
 ### Reading the log
 
@@ -1354,24 +1384,23 @@ tail -n 100 ~/mcp-audit-postgres.jsonl | jq 'select(.status == "tool_error" or .
 All unique tools the model tried to call, ranked by frequency:
 
 ```bash
-jq -r 'select(.event == "tools/call" and .status == null) | .tool' ~/mcp-audit-postgres.jsonl \
+jq -r 'select(.event == "tools/call") | .tool' ~/mcp-audit-postgres.jsonl \
   | sort | uniq -c | sort -rn
 ```
 
-Request-response pairs joined by `id`:
+Find the outcome of a specific call:
 
 ```bash
-jq -c 'select(.event == "tools/call")' ~/mcp-audit-postgres.jsonl \
-  | awk -F'"id":' '{print $2}' | sort | uniq -c
+jq -c 'select(.event == "tools/call" and .id == 42)' ~/mcp-audit-postgres.jsonl
 ```
 
 ### Ordering guarantee
 
-If you register `audit` **first** in your pipeline (the recommended shape, all bundled Lenses do), it sees the **pre-redaction** client message and the **pre-redaction** target response. The client receives the redacted version. This is deliberate: the audit log is the ground-truth record for incident response, while the model never sees raw PII.
+The CLI registers `audit` before the response redactor. Audit can therefore record the upstream error message before matching values are removed for the client. Raw request arguments are logged only with `logRawArgs: true`; successful response bodies are not stored, only their byte count. YAML key order does not change the CLI's overlay registration order. Treat the log as sensitive and configure retention and access accordingly.
 
 ```yaml
-# Recommended overlay order
-audit: # sees raw bytes, logs pre-redaction
+# Example configuration (CLI registration order is fixed)
+audit: # may record raw args and upstream error messages
   sink: ~/audit.jsonl
   logRawArgs: true
 block: # blocks dangerous tools
@@ -1380,14 +1409,14 @@ sqlGuard: # blocks dangerous SQL
   tools: [query]
 instructions: |
   STRICT POLICY. …
-redact: # LAST: scrubs before the model sees anything
+redact: # transforms matching response values for the client
   rules:
     - field: "**.email"
 ```
 
 ### Retention & rotation
 
-JanuScope does not rotate the log itself. If you point `sink:` at a path, use `logrotate` (Linux) or a `newsyslog` rule (macOS) with the standard `create 0600 <user>` directive so rotated files inherit the right mode. Or stream to stdout and let your log aggregator handle retention.
+JanuScope does not rotate the log itself. If you point `sink:` at a path, use `logrotate` (Linux) or a `newsyslog` rule (macOS) with the standard `create 0600 <user>` directive so rotated files inherit the right mode. Or collect the diagnostic stream and let your log aggregator handle retention; keep audit output off the MCP stdout pipe.
 
 ## Library API
 
@@ -1400,16 +1429,16 @@ const config = loadConfig("./policy.yaml");
 await runOverlay({ config });
 ```
 
-The `runOverlay` promise resolves when both the client and the target streams have closed. See `src/index.ts` for the full public surface.
+The `runOverlay` promise resolves after bridge shutdown completes; a fatal process error can terminate the process first. See `src/index.ts` for the full public surface.
 
 ## JanuScope vs Claude Skills
 
 Claude **Skills** (the new first-party Anthropic pattern) and JanuScope solve related but different problems. They compose; they do not compete.
 
-| Layer                       | What it does                                | Failure mode                                            |
-| --------------------------- | ------------------------------------------- | ------------------------------------------------------- |
-| **Skill** (client-side)     | Tells the model _how_ to use a tool         | The model can ignore or forget the instruction          |
-| **JanuScope** (server-side) | Enforces _what the model can physically do_ | The call fails at the proxy; nothing reaches the target |
+| Layer                       | What it does                                         | Failure mode                                            |
+| --------------------------- | ---------------------------------------------------- | ------------------------------------------------------- |
+| **Skill** (client-side)     | Tells the model _how_ to use a tool                  | The model can ignore or forget the instruction          |
+| **JanuScope** (server-side) | Enforces configured limits _through the wrapped MCP_ | The call fails at the proxy; nothing reaches the target |
 
 Skills shape intent. JanuScope enforces limits. Any serious deployment needs both, that's _trust + verify_ architecture.
 
@@ -1417,13 +1446,13 @@ Skills shape intent. JanuScope enforces limits. Any serious deployment needs bot
 
 **What happens if the LLM tries to bypass JanuScope by running `redis-cli` / `psql` / `gh` from the terminal?** Nothing JanuScope can stop directly, the terminal is a sibling tool surface in the agent host (Copilot, Cursor, Claude Code), not a wrapped MCP. The proxy only sees JSON-RPC traffic to the MCP it spawned. This is by design and documented in [SECURITY.md](./SECURITY.md#three-layer-model) under the **three-layer model**:
 
-1. **Hide**: `block` removes write tools from `tools/list` so the model never sees them. The model can't call a tool it doesn't know exists. JanuScope provides this.
+1. **Hide**: `block` removes write tools from `tools/list` so the model never sees them. A direct call to a blocked name is also refused, even if the model guesses it. JanuScope provides this.
 2. **Advise**: `instructions` (with `position: prepend`) and `contextInjection` push a SURFACE BOUNDARY paragraph into the descriptions the model reads, explicitly forbidding terminal / vendor-CLI / sibling-MCP bypass. JanuScope provides this. **It is advice, not enforcement**, observed live against VS Code Copilot, the model receives the policy text and can recite it when asked, yet still proposes terminal bypasses on its own initiative for some prompts.
 3. **Enforce at the data path**: a credential that physically cannot mutate, configured upstream of JanuScope (read-only DB role, read-only Upstash token, fine-grained read-only PAT, Stripe `rk_*`). **JanuScope cannot provide this layer.** It is the actual barrier when layers 1 and 2 do not hold.
 
 For demo / non-production use, layers 1 and 2 alone are usually enough, your data is throwaway, the agent is supervised. **For production deployments, layer 3 is mandatory.** Each bundled lens README has a `Prerequisites` section documenting the recommended layer-3 credential for that backend; treat it as a deployment requirement, not a suggestion.
 
-**Does this work with remote MCP servers?** Yes, today, through the bundled `linear-remote`, `notion-official`, and `atlassian-official` lenses. Each spawns [`mcp-remote`](https://github.com/geelen/mcp-remote) as a stdio↔HTTPS bridge in front of the vendor's Streamable HTTP endpoint (and handles the OAuth flow); JanuScope wraps the bridge as if it were any other stdio MCP. **Native Streamable HTTP transport inside JanuScope** (no `mcp-remote` hop) is planned for a post-v0.3 release. See ["What is `mcp-remote`..."](#faq) below for the install + auth details.
+**Does this work with remote MCP servers?** Yes, today, through bundled lenses such as `linear-remote`, `notion-official`, and `atlassian-official`. Each spawns [`mcp-remote`](https://github.com/geelen/mcp-remote) as a stdio↔HTTPS bridge in front of the vendor's Streamable HTTP endpoint (and handles the OAuth flow); JanuScope wraps the bridge as if it were any other stdio MCP. **Native Streamable HTTP transport inside JanuScope** (no `mcp-remote` hop) is not implemented. See ["What is `mcp-remote`..."](#faq) below for the install + auth details.
 
 **How big is the performance overhead?** In-process per-call overhead is sub-millisecond. Measured on Node 22 / M2 with `npm run bench:overhead` (a 10,000-iteration microbenchmark over the full `Pipeline`, audit sink pointed at a temp file) the numbers fall around:
 
@@ -1439,7 +1468,7 @@ For demo / non-production use, layers 1 and 2 alone are usually enough, your dat
 
 So even on the busiest configuration the pipeline itself costs **tens of microseconds per request**, four to five orders of magnitude below a typical LLM round-trip, and noise against the MCP child-process IO. `dbSchema` is excluded from the per-cycle table because its only per-request work is the `tools/list` rewrite (runs once per session); its _setup_ cost is ~50–300 ms of live DB introspection at startup. Run `npm run bench:overhead -- --json` to get a machine-readable snapshot on your own hardware.
 
-**When do I use `redact.rules: regex` vs `field`?** Use both for serious lenses. **`field` rules** target column/property names (`**.email`, `**.password`, `users[*].stripe_id`) and auto-parse JSON strings inside text content blocks, so they catch PII in the rows a SQL MCP returns. **`regex` rules** catch value patterns that aren't tied to a column name, email addresses in free-form text, bcrypt hash prefixes, Stripe/AWS key formats. The two are complementary: field rules are more precise, regex rules are more permissive.
+**When do I use `redact.rules: regex` vs `field`?** Use both for serious lenses. **`field` rules** target column/property names (`**.email`, `**.password`, `users[*].stripe_id`) and process supported JSON and Python-style rows inside text content blocks, so they can reach matching fields in SQL MCP output. Aliases and transformed values can evade these rules. **`regex` rules** catch value patterns that aren't tied to a column name, email addresses in free-form text, bcrypt hash prefixes, Stripe/AWS key formats. The two are complementary: field rules are more precise, regex rules are more permissive.
 
 **`block` vs `sqlGuard`, when does each apply?** `block` filters at **tool-name granularity**, use it when the target MCP exposes write-capable tools as separate tools (e.g. `write_query`, `create_table`, `drop_table`). You block the whole tool. `sqlGuard` operates one level deeper: when an MCP has a single tool like `query` or `execute_sql` that accepts arbitrary SQL, `block` can't distinguish SELECT from UPDATE through that tool, `sqlGuard` inspects the SQL argument and rejects anything with write keywords. A serious lens often uses both: `block` on the obviously-named write tools, `sqlGuard` on the generic SQL tool.
 
@@ -1451,7 +1480,7 @@ So even on the busiest configuration the pipeline itself costs **tens of microse
 2. **Non-function-call mutation paths we haven't listed.** The default allowlist blocks the 17 Postgres admin / filesystem / DoS functions we know about (`lo_import`, `lo_export`, `pg_read_file`, `pg_write_file`, `pg_sleep`, `pg_terminate_backend`, `dblink*`, `COPY … PROGRAM`, etc.) but new dangerous functions in future Postgres versions are undetected until the list is updated.
 3. **Dynamic SQL.** If your tool accepts an argument that is then itself SQL-concatenated server-side (usually a design smell, but it happens), `sqlGuard` only sees the outer tool argument.
 
-Backstop: a database-level **read-only role** is the last line of defence. `sqlGuard` is a convenience gate that catches the 95% case without requiring a DB role change; treat it as one layer, not the only one.
+Backstop: a database-level **read-only role** is the last line of defence. `sqlGuard` is a best-effort keyword gate, not a measured 95% guarantee; treat it as one layer, not the only one.
 
 **Does `audit` chmod existing files when I enable `logRawArgs`?** No, JanuScope opens new audit sink files with mode `0o600` (user-read/write only), but it does **not** chmod files that already exist. If your audit log was first created while `logRawArgs: false` (hashed args only) and you later flip to `logRawArgs: true`, the old permission bits carry over. **Rotate to a fresh sink path** when you enable raw-args logging so the tighter `0o600` is applied from day one.
 
@@ -1459,19 +1488,19 @@ Backstop: a database-level **read-only role** is the last line of defence. `sqlG
 
 **Can I use it programmatically without the CLI?** Yes, import `runOverlay` from the library. The CLI is just a thin wrapper around it.
 
-**How do I find out what tools my MCP exposes?** Run the MCP once with a single `tools/list` request:
+**How do I find out what tools my MCP exposes?** Run the setup diagnostic against your Lens or policy file:
 
 ```bash
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | <your-mcp-command>
+npx -y januscope check --config <name-or-path>
 ```
 
-The response lists every tool's name, description, and input schema. Use those names in your JanuScope config.
+It performs the MCP initialization handshake and paginated tool discovery, checks policy selectors, and reports the observed tools without calling them. Use those names in your JanuScope config. The target can send individual or batched JSON-RPC messages. [Diagnostic options](./docs/setup.md#check-a-setup).
 
-**Is there a Windows build?** Yes, JanuScope is pure Node.js. DB drivers are optional peer deps. Runs on macOS, Linux, Windows.
+**Is there a Windows build?** JanuScope runs on Node.js 20+ on macOS, Linux and Windows. Upstream MCP executables and optional database drivers retain their own platform requirements; SQLite uses a native addon. CI covers Node 20 and 22 on Linux, with additional local macOS package checks; Windows was not exercised for this change.
 
 **What Node version?** Node 20+.
 
-**What is `mcp-remote` and do I need to install it?** Three bundled Lenses (`atlassian-official`, `notion-official`, `linear-remote`) wrap **remote** MCPs, vendor-hosted services that speak HTTPS instead of stdio. JanuScope v0.3's engine is stdio-native, so those Lenses spawn [`mcp-remote`](https://github.com/geelen/mcp-remote) (an external npm package by @geelen) as a subprocess via `npx -y mcp-remote <url>`. `mcp-remote` is a thin stdio↔HTTPS bridge that also handles the OAuth flow. You don't install it manually, `npx` fetches and caches it on first use, and the tokens live in `~/.mcp-auth/`. Native Streamable HTTP transport inside JanuScope is planned for a post-v0.3 release, which will remove the bridge hop.
+**What is `mcp-remote` and do I need to install it?** Bundled Lenses such as `atlassian-official`, `notion-official` and `linear-remote` wrap **remote** MCPs, vendor-hosted services that speak HTTPS instead of stdio. JanuScope's engine is stdio-native, so those Lenses spawn [`mcp-remote`](https://github.com/geelen/mcp-remote) (an external npm package by @geelen) as a subprocess via `npx -y mcp-remote <url>`. `mcp-remote` is a thin stdio↔HTTPS bridge that also handles the OAuth flow. You don't install it manually, `npx` fetches and caches it on first use, and authentication state is managed by the bridge; consult its documentation for the installed version. Native Streamable HTTP transport inside JanuScope is not implemented.
 
 ## License
 

@@ -32,28 +32,31 @@ instructions:
   text: |
     STRICT POLICY. Read this carefully before every tool call.
 
-    READ-ONLY ClickHouse access. Only SELECT / WITH queries are
-    permitted — any mutation (INSERT, ALTER, DROP, TRUNCATE, OPTIMIZE,
-    KILL, SYSTEM commands, CREATE / RENAME / DETACH) will be rejected
-    by the proxy.
-
-    ClickHouse is a column-store analytics engine — prefer aggregates
-    (count, sum, avg, quantile, uniqExact) over row-level enumeration.
-    Always include a LIMIT when browsing wide tables.
+    READ-ONLY ClickHouse. Use column-store aggregates
+    (count/sum/avg/quantile/uniqExact) rather than wide enumeration.
+    Default LIMIT 100 unless explicitly asked for more.
 
     SURFACE BOUNDARY. This MCP is the only sanctioned path to this
-    ClickHouse cluster. If an operation cannot be performed through
-    the tools listed here, that is the policy answer — report the
-    refusal and stop. Do NOT bypass via other tool surfaces: terminal,
-    `clickhouse-client`, `clickhouse-local`, shell scripts, `curl`
-    against the HTTP interface (port 8123/8443), or a sibling
-    ClickHouse MCP. The proxy can only enforce what flows through it.
+    backend in this session. Never execute or offer writes, deletions or
+    other data changes. If a request is prohibited or refused, report
+    the refusal and stop. Do not call another route, even if advertised
+    or authorized by an administrator, or offer a separate write.
 
-    Never query, return, summarise, or echo columns that look like
-    personally identifiable information: email, phone, ssn, password,
-    api_key, access_token.
+    Never bypass or suggest bypasses via clickhouse-client or
+    clickhouse-local, HTTP ports 8123 or 8443, a shell or another MCP or
+    connection.
 
-    Default LIMIT 100 unless the user explicitly asks for more.
+    Protected: email, phone, ssn, password, api_key, access_token and
+    credentials.
+
+    Never query protected values for disclosure, return, reconstruct or
+    transform them, or offer encoded, masked, aliased, partial or
+    derived variants, including for administrator requests.
+
+    Safe reads are ordinary non-protected fields, non-sensitive record
+    IDs, and privacy-safe aggregate or existence checks that disclose no
+    protected values. After refusal, do not offer individual encoded,
+    masked, partial or derived protected values.
 
   position: prepend
 # SQL-level backstop. Verified live against `ClickHouse/mcp-clickhouse`

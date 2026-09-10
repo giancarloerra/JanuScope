@@ -36,6 +36,9 @@ export interface ProbeOptions {
    * else is wrong.
    */
   timeoutMs?: number;
+  /** Setup diagnostics require valid envelopes and a complete paginated list.
+   * Omitted by existing approval/library callers to preserve their contract. */
+  verifyProtocol?: boolean;
 }
 
 export interface ProbeResult {
@@ -44,6 +47,19 @@ export interface ProbeResult {
 }
 
 const MIN_PROBE_TIMEOUT_MS = 15_000;
+const MAX_DIAGNOSTIC_PAGES = 100;
+
+/** A local diagnostic limit with a message containing no target-supplied values. */
+export class DiagnosticPageLimitError extends Error {
+  readonly code = "MCP_PAGE_LIMIT_EXCEEDED";
+
+  constructor() {
+    super(
+      `tools/list exceeds the diagnostic limit of ${MAX_DIAGNOSTIC_PAGES} pages; configure the target to return fewer pages`,
+    );
+    this.name = "DiagnosticPageLimitError";
+  }
+}
 
 export async function probeTarget(
   config: OverlayConfig,
@@ -76,6 +92,10 @@ export async function probeTarget(
     let stdoutBuf = "";
     let initResponded = false;
     let serverInfo: ProbeResult["serverInfo"] = { name: "?", version: "?" };
+    let toolsRequestId = 2;
+    const collectedTools: LiveTool[] = [];
+    const seenCursors = new Set<string>();
+    const seenToolNames = new Set<string>();
 
     const cleanup = (): void => {
       try {
@@ -109,6 +129,14 @@ export async function probeTarget(
       reject(err);
     };
 
+    const protocolFailure = (
+      message: string,
+      code: number | string = "INVALID_MCP_RESPONSE",
+    ): void => {
+      clearTimeout(timer);
+      fail(Object.assign(new Error(message), { code }));
+    };
+
     const timer = setTimeout(() => {
       fail(
         new Error(
@@ -121,7 +149,16 @@ export async function probeTarget(
 
     child.on("error", (err) => {
       clearTimeout(timer);
-      fail(new Error(`probe spawn failed: ${err.message}`));
+      fail(new Error(`probe spawn failed: ${err.message}`, { cause: err }));
+    });
+
+    child.stdin?.on("error", (err: Error) => {
+      clearTimeout(timer);
+      fail(new Error("target input stream failed", { cause: err }));
+    });
+    child.stdout?.on("error", (err: Error) => {
+      clearTimeout(timer);
+      fail(new Error("target output stream failed", { cause: err }));
     });
 
     child.on("exit", (code) => {
@@ -136,25 +173,203 @@ export async function probeTarget(
       }
     });
 
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdoutBuf += chunk.toString("utf8");
+    child.stdout?.setEncoding("utf8");
+    const processOutput = async (chunk: string): Promise<void> => {
+      if (resolved) return;
+      stdoutBuf += chunk;
       const lines = stdoutBuf.split("\n");
       stdoutBuf = lines[lines.length - 1] ?? "";
       for (const line of lines.slice(0, -1)) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        let msg: { id?: number; result?: unknown; error?: { code: number; message: string } };
+        let msg: {
+          jsonrpc?: string;
+          id?: number | string;
+          method?: unknown;
+          params?: unknown;
+          result?: unknown;
+          error?: { code: number; message: string };
+        };
+        let payload: unknown;
         try {
-          msg = JSON.parse(trimmed) as typeof msg;
+          payload = JSON.parse(trimmed);
         } catch {
+          if (options.verifyProtocol) {
+            protocolFailure("target emitted invalid JSON");
+            return;
+          }
           continue;
+        }
+        const batched = Array.isArray(payload);
+        const messages = batched ? (payload as (typeof msg)[]) : [payload as typeof msg];
+        if (
+          batched &&
+          (messages.length === 0 ||
+            messages.some(
+              (message) =>
+                !message ||
+                typeof message !== "object" ||
+                Array.isArray(message) ||
+                message.jsonrpc !== "2.0",
+            ))
+        ) {
+          protocolFailure("target emitted an invalid JSON-RPC batch");
+          return;
+        }
+        msg = messages[0]!;
+        if (
+          msg === null ||
+          (options.verifyProtocol && (typeof msg !== "object" || msg.jsonrpc !== "2.0"))
+        ) {
+          protocolFailure("target emitted an invalid JSON-RPC envelope");
+          return;
+        }
+        const requests = messages.filter(
+          (message) => message && typeof message === "object" && "method" in message,
+        );
+        if (batched && requests.length > 0 && requests.length !== messages.length) {
+          protocolFailure("target batch mixes requests and responses");
+          return;
+        }
+        if (requests.length > 0) {
+          const replies: Record<string, unknown>[] = [];
+          const requestIds = new Set<unknown>();
+          for (const request of requests) {
+            if (
+              request.jsonrpc !== "2.0" ||
+              typeof request.method !== "string" ||
+              "result" in request ||
+              "error" in request ||
+              ("id" in request &&
+                typeof request.id !== "string" &&
+                !Number.isInteger(request.id)) ||
+              ("params" in request &&
+                (!request.params ||
+                  typeof request.params !== "object" ||
+                  Array.isArray(request.params)))
+            ) {
+              if (options.verifyProtocol || batched) {
+                protocolFailure("target emitted an invalid JSON-RPC request or notification");
+                return;
+              }
+              continue;
+            }
+            if (!("id" in request)) continue;
+            if (batched && requestIds.has(request.id)) {
+              protocolFailure("target batch contains duplicate request IDs");
+              return;
+            }
+            requestIds.add(request.id);
+            replies.push({
+              jsonrpc: "2.0",
+              id: request.id,
+              ...(request.method === "ping"
+                ? { result: {} }
+                : { error: { code: -32601, message: "Method not found" } }),
+            });
+          }
+          if (replies.length > 0) {
+            try {
+              await new Promise<void>((resolveWrite, rejectWrite) => {
+                try {
+                  child.stdin!.write(
+                    JSON.stringify(batched ? replies : replies[0]) + "\n",
+                    (error) => {
+                      if (error)
+                        rejectWrite(new Error("target input stream failed", { cause: error }));
+                      else resolveWrite();
+                    },
+                  );
+                } catch (err) {
+                  rejectWrite(new Error("failed to reply to target request", { cause: err }));
+                }
+              });
+            } catch (err) {
+              clearTimeout(timer);
+              fail(err as Error);
+              return;
+            }
+          }
+          if (resolved) return;
+          continue;
+        }
+        if (batched) {
+          if (
+            messages.some(
+              (message) =>
+                (typeof message.id !== "string" && !Number.isInteger(message.id)) ||
+                "result" in message === "error" in message ||
+                ("result" in message &&
+                  (!message.result ||
+                    typeof message.result !== "object" ||
+                    Array.isArray(message.result))) ||
+                ("error" in message &&
+                  (!message.error ||
+                    typeof message.error !== "object" ||
+                    Array.isArray(message.error) ||
+                    !Number.isInteger(message.error.code) ||
+                    typeof message.error.message !== "string")),
+            )
+          ) {
+            protocolFailure("target emitted an invalid JSON-RPC response batch");
+            return;
+          }
+          // Only a response to the request already outstanding can advance discovery.
+          const expectedId = initResponded ? toolsRequestId : 1;
+          const matching = messages.filter((message) => message.id === expectedId);
+          if (matching.length > 1) {
+            protocolFailure("target batch contains duplicate responses for one request");
+            return;
+          }
+          if (matching.length === 0) continue;
+          msg = matching[0]!;
+        }
+        if (
+          options.verifyProtocol &&
+          ((msg.id === 1 && !initResponded) || msg.id === toolsRequestId) &&
+          "result" in msg === "error" in msg
+        ) {
+          protocolFailure("target response must contain exactly one result or error");
+          return;
+        }
+        if (
+          options.verifyProtocol &&
+          msg.error &&
+          (typeof msg.error !== "object" ||
+            !Number.isInteger(msg.error.code) ||
+            typeof msg.error.message !== "string")
+        ) {
+          protocolFailure("target response contains an invalid error envelope");
+          return;
         }
         if (msg.id === 1 && !initResponded) {
           initResponded = true;
           if (msg.error) {
             clearTimeout(timer);
-            fail(new Error(`initialize failed: ${msg.error.code} ${msg.error.message}`));
+            if (options.verifyProtocol) protocolFailure("initialize failed", msg.error.code);
+            else fail(new Error(`initialize failed: ${msg.error.code} ${msg.error.message}`));
             return;
+          }
+          if (options.verifyProtocol) {
+            const result = msg.result as {
+              protocolVersion?: unknown;
+              capabilities?: unknown;
+              serverInfo?: { name?: unknown; version?: unknown };
+            } | null;
+            if (
+              !result ||
+              typeof result.protocolVersion !== "string" ||
+              !result.capabilities ||
+              typeof result.capabilities !== "object" ||
+              Array.isArray(result.capabilities) ||
+              typeof result.serverInfo?.name !== "string" ||
+              typeof result.serverInfo.version !== "string"
+            ) {
+              protocolFailure(
+                "initialize response is missing protocolVersion, capabilities or serverInfo",
+              );
+              return;
+            }
           }
           const si = (msg.result as { serverInfo?: { name?: string; version?: string } })
             ?.serverInfo;
@@ -174,25 +389,92 @@ export async function probeTarget(
             );
           } catch (err) {
             clearTimeout(timer);
-            fail(new Error(`failed to send tools/list: ${(err as Error).message}`));
+            fail(new Error(`failed to send tools/list: ${(err as Error).message}`, { cause: err }));
+            return;
           }
           continue;
         }
-        if (msg.id === 2) {
-          clearTimeout(timer);
+        if (msg.id === toolsRequestId) {
+          if (options.verifyProtocol && !initResponded) {
+            protocolFailure("tools/list response arrived before initialize completed");
+            return;
+          }
           if (msg.error) {
-            fail(new Error(`tools/list failed: ${msg.error.code} ${msg.error.message}`));
+            clearTimeout(timer);
+            if (options.verifyProtocol) protocolFailure("tools/list failed", msg.error.code);
+            else fail(new Error(`tools/list failed: ${msg.error.code} ${msg.error.message}`));
             return;
           }
           const tools = (msg.result as { tools?: unknown })?.tools;
           if (!Array.isArray(tools)) {
+            if (options.verifyProtocol) {
+              protocolFailure("tools/list response had no `tools` array");
+              return;
+            }
+            clearTimeout(timer);
             fail(new Error("tools/list response had no `tools` array"));
             return;
           }
-          succeed({ tools: tools as LiveTool[], serverInfo });
+          if (options.verifyProtocol) {
+            if (!tools.every(isDiagnosticTool)) {
+              protocolFailure("tools/list contains an invalid tool name or inputSchema");
+              return;
+            }
+            for (const tool of tools as LiveTool[]) {
+              if (seenToolNames.has(tool.name)) {
+                protocolFailure("tools/list contains duplicate tool names");
+                return;
+              }
+              seenToolNames.add(tool.name);
+            }
+            collectedTools.push(...(tools as LiveTool[]));
+            const cursor = (msg.result as { nextCursor?: unknown }).nextCursor;
+            if (cursor !== undefined) {
+              if (typeof cursor !== "string" || seenCursors.has(cursor)) {
+                protocolFailure("tools/list returned an invalid or repeated pagination cursor");
+                return;
+              }
+              if (seenCursors.size + 1 >= MAX_DIAGNOSTIC_PAGES) {
+                clearTimeout(timer);
+                fail(new DiagnosticPageLimitError());
+                return;
+              }
+              seenCursors.add(cursor);
+              toolsRequestId++;
+              try {
+                child.stdin?.write(
+                  JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: toolsRequestId,
+                    method: "tools/list",
+                    params: { cursor },
+                  }) + "\n",
+                );
+              } catch (err) {
+                clearTimeout(timer);
+                fail(new Error("failed to send paginated tools/list", { cause: err }));
+                return;
+              }
+              continue;
+            }
+          }
+          clearTimeout(timer);
+          succeed({
+            tools: options.verifyProtocol ? collectedTools : (tools as LiveTool[]),
+            serverInfo,
+          });
           return;
         }
       }
+    };
+    let outputQueue = Promise.resolve();
+    child.stdout?.on("data", (chunk: string) => {
+      outputQueue = outputQueue
+        .then(() => processOutput(chunk))
+        .catch((err: unknown) => {
+          clearTimeout(timer);
+          fail(new Error("failed to process target output", { cause: err }));
+        });
     });
 
     // Send `initialize` immediately. The buffered write doesn't reach
@@ -216,7 +498,32 @@ export async function probeTarget(
       );
     } catch (err) {
       clearTimeout(timer);
-      fail(new Error(`failed to send initialize: ${(err as Error).message}`));
+      fail(new Error(`failed to send initialize: ${(err as Error).message}`, { cause: err }));
     }
   });
+}
+
+/** Validate the MCP Tool input-schema envelope, preserving additional JSON
+ * Schema keywords and boolean property schemas used by newer revisions. */
+function isDiagnosticTool(value: unknown): boolean {
+  const record = (node: unknown): node is Record<string, unknown> =>
+    node !== null && typeof node === "object" && !Array.isArray(node);
+  if (!record(value) || typeof value.name !== "string" || value.name.length === 0) return false;
+  const schema = value.inputSchema;
+  if (!record(schema) || schema.type !== "object") return false;
+  if (
+    schema.properties !== undefined &&
+    (!record(schema.properties) ||
+      !Object.values(schema.properties).every(
+        (property) => typeof property === "boolean" || record(property),
+      ))
+  )
+    return false;
+  if (
+    schema.required !== undefined &&
+    (!Array.isArray(schema.required) ||
+      !schema.required.every((name: unknown) => typeof name === "string"))
+  )
+    return false;
+  return true;
 }

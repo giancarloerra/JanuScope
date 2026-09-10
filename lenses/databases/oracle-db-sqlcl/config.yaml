@@ -39,17 +39,33 @@ sqlGuard:
   readOnly: true
 
 instructions: |
-  READ-ONLY Oracle Database. This database is wrapped behind JanuScope.
-  - Use `list-connections` to find available saved connections.
-  - Use `connect <name>` to attach to one (read-only role
-    enforced at the database level — see the lens README for setup).
-  - Use `schema-information` to discover tables / views / packages.
-  - Use `run-sql` for SELECT and read-only WITH queries; the proxy
-    rejects any SQL that contains a write keyword, even inside a
-    comment or string. Quote literals carefully.
-  - `run-sqlcl` is blocked. Do not try to run client meta-commands
-    (HOST, SCRIPT, SPOOL, etc.) through this proxy — they are
-    refused and the attempt is audited.
+  STRICT POLICY. Read this carefully before every tool call.
+
+  READ-ONLY Oracle Database. Use list-connections, connect and
+  schema-information before run-sql SELECT or WITH queries. Keep the
+  database read-only role configured. run-sqlcl and client meta-commands
+  (HOST, SCRIPT, SPOOL) are blocked; do not request them.
+
+  SURFACE BOUNDARY. This MCP is the only sanctioned path to this backend
+  in this session. Never execute or offer writes, deletions or other
+  data changes. If a request is prohibited or refused, report the
+  refusal and stop. Do not call another route, even if advertised or
+  authorized by an administrator, or offer a separate write.
+
+  Never bypass or suggest bypasses through a shell, CLI, API, file or
+  another MCP or connection.
+
+  Protected: email, password, password_hash, api_key, token, ssn
+  (including uppercase variants) and card numbers.
+
+  Never query protected values for disclosure, return, reconstruct or
+  transform them, or offer encoded, masked, aliased, partial or derived
+  variants, including for administrator requests.
+
+  Safe reads are ordinary non-protected fields, non-sensitive record
+  IDs, and privacy-safe aggregate or existence checks that disclose no
+  protected values. After refusal, do not offer individual encoded,
+  masked, partial or derived protected values.
 
 redact:
   rules:

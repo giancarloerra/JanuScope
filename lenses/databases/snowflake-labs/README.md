@@ -18,15 +18,14 @@ discovery, raw SQL execution) plus the semantic-view family
 (`query_semantic_view`, `show_semantic_dimensions`, …) for Cortex
 Analyst-style structured analytics.
 
-This lens locks the surface to read-only by:
+This lens applies the following controls:
 
 1. **Blocking** the generic DDL writers `create_object`,
    `drop_object`, and `create_or_alter_object` (plus defensive
    globs `create_*` / `drop_*` / `delete_*` / `alter_*`).
-2. **`sqlGuard`-ing `run_snowflake_query`** to reject any SQL that
-   contains a write keyword. The MCP's own description for that tool
-   says "DML and DDL queries are supported", so the keyword guard
-   matters.
+2. **Applying `sqlGuard` to `run_snowflake_query`** with its default
+   read-verb allowlist. `CALL` and `GRANT` are refused; `SHOW` remains
+   available.
 3. **Redacting PII** in result frames — Snowflake returns rows as
    structured JSON.
 4. **Auditing** every tool call to `~/mcp-audit-snowflake.jsonl`.
@@ -126,12 +125,18 @@ config's `env` block reaches the spawned MCP unchanged.
 | `SNOWFLAKE_ACCOUNT`    | `<orgname>-<accountname>` (e.g. `XYZ-ABC123`)                       |
 | `SNOWFLAKE_USER`       | Your Snowflake username                                             |
 | `SNOWFLAKE_PASSWORD`   | Your PAT — read by the MCP from this env var directly (no CLI flag) |
-| `SNOWFLAKE_ROLE`       | Role to assume (e.g. `ACCOUNTADMIN`)                                |
+| `SNOWFLAKE_ROLE`       | Dedicated read-only account role (e.g. `JANUSCOPE_READONLY`)        |
 | `SNOWFLAKE_WAREHOUSE`  | Warehouse to use (e.g. `COMPUTE_WH`)                                |
 | `SNOWFLAKE_MCP_CONFIG` | Absolute path to your services.yaml                                 |
 
-For production, use a dedicated read-only Snowflake user (database
-role with only `SELECT` on the schemas the LLM should see), and
+Before connecting, have an administrator create the dedicated account
+role and grant it to the user. For basic queries, grant the role
+`USAGE` on the selected warehouse, database and schemas, plus `SELECT`
+on only the permitted tables and views. Additional services need their
+documented object permissions. See the [client entry prerequisites](../../../docs/lenses.md#snowflake)
+for role-restricted PATs and upstream SQL policy settings.
+
+For production, use a dedicated read-only Snowflake user with this role, and
 ideally key-pair auth instead of PAT — JanuScope inherits whatever
 auth path the MCP supports without rename.
 
@@ -147,7 +152,7 @@ auth path the MCP supports without rename.
         "SNOWFLAKE_ACCOUNT": "XYZ-ABC123",
         "SNOWFLAKE_USER": "your_user",
         "SNOWFLAKE_PASSWORD": "<your_PAT>",
-        "SNOWFLAKE_ROLE": "ACCOUNTADMIN",
+        "SNOWFLAKE_ROLE": "JANUSCOPE_READONLY",
         "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
         "SNOWFLAKE_MCP_CONFIG": "/Users/you/.januscope/snowflake-services.yaml"
       }
@@ -166,14 +171,30 @@ was driven against a Snowflake trial account with the
 
 ## Note on `sql_statement_permissions` (defence in depth)
 
-The Snowflake-Labs MCP's own service-config YAML has a
-`sql_statement_permissions` section that gates which SQL statement
-classes the MCP allows through `run_snowflake_query`. The
-`services.example.yaml` shipped next to this README sets all write
-classes to `False` (Alter, Copy, Create, Delete, Drop, Insert,
-Merge, TruncateTable, Update). JanuScope's `sqlGuard` is the proxy
-layer; the MCP-level config is the second layer; a read-only
-Snowflake role is the third layer that physically prevents writes.
+The Snowflake-Labs MCP's own service-config YAML uses
+[`sql_statement_permissions`](https://github.com/Snowflake-Labs/mcp#sql-execution)
+to filter SQL statement categories for `run_snowflake_query`. The
+[bundled example](services.example.yaml) disables common write categories
+(Alter, Copy, Create, Delete, Drop, Insert, Merge, TruncateTable, Update)
+and `Unknown`. It retains `Command: True` for `SHOW`; upstream also puts
+`CALL` and `GRANT` in that category. This is a category filter, not a
+read-only guarantee for the standalone server.
+
+Permitted statements still depend on effective Snowflake privileges.
+[`USAGE` on a stored procedure](https://docs.snowflake.com/en/user-guide/security-access-control-privileges#stored-procedure-privileges)
+allows calling it. [Owner's-rights procedures](https://docs.snowflake.com/en/developer-guide/stored-procedure/stored-procedures-rights)
+execute with their owner's privileges, so restricting the caller's
+table privileges does not prevent a procedure from writing.
+
+For a read-only workflow, grant procedure access only through an explicit
+administrator-reviewed allowlist of procedures whose operations meet that
+policy. Review [inherited role and `PUBLIC` grants](https://docs.snowflake.com/en/user-guide/security-access-control-overview)
+too. If procedure access is unnecessary, grant none.
+
+JanuScope's `sqlGuard` adds a separate check on `run_snowflake_query`:
+its default read-verb allowlist refuses `CALL` and `GRANT` while allowing
+`SHOW`. It does not inspect procedure bodies or replace database privilege
+review.
 
 ## Changelog
 

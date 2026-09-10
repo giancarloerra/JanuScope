@@ -48,7 +48,9 @@ export const mysqlDriver: Driver = {
       const tables: TableInfo[] = [];
       for (const tableName of allowed) {
         const tableComment =
-          tableRows.find((r) => r.TABLE_NAME === tableName)?.TABLE_COMMENT ?? null;
+          opts.includeComments === false
+            ? null
+            : (tableRows.find((r) => r.TABLE_NAME === tableName)?.TABLE_COMMENT ?? null);
         const columns = await fetchColumns(conn, database, tableName, opts);
         const primaryKey = await fetchPrimaryKey(conn, database, tableName);
         const foreignKeys = await fetchForeignKeys(conn, database, tableName);

@@ -29,6 +29,7 @@ import {
   isRequest as isRequestMessage,
   makeErrorResponse,
   RpcErrorCode,
+  type JsonRpcId,
   type JsonRpcMessage,
   type JsonRpcRequest,
 } from "./rpc.js";
@@ -41,8 +42,15 @@ import type { Classification } from "./config.js";
  * throws. Factored here so the ID-typing matches the rest of the
  * call-site.
  */
-function makeInternalErrorResponse(id: number | string, message: string): JsonRpcMessage {
+function makeInternalErrorResponse(id: JsonRpcId, message: string): JsonRpcMessage {
   return makeErrorResponse(id, RpcErrorCode.InternalError, message);
+}
+
+/** Classify gate failures without exposing request or response text from the exception. */
+function classifyGateFailure(err: unknown): string {
+  if (err instanceof RangeError) return "RangeError";
+  if (err instanceof TypeError) return "TypeError";
+  return "processing error";
 }
 
 export interface OverlayContext {
@@ -72,10 +80,10 @@ export interface Overlay {
 
   /**
    * Fail-open vs fail-closed policy when this overlay throws. A "gate"
-   * overlay (block, sqlGuard) enforces a security boundary; if its
+   * overlay (block, sqlGuard, redact) enforces a security boundary; if its
    * handler crashes on a malformed payload, forwarding the original
    * message would defeat the whole point of the proxy. "Observer"
-   * overlays (audit, redact, dbSchema, instructions) enhance the
+   * overlays (audit, dbSchema, instructions) enhance the
    * request/response but are not the last line of defence — an
    * exception there should not break the pipeline. Defaults to
    * `"observer"` so overlays that never set it preserve the v0.3
@@ -199,28 +207,40 @@ export class Pipeline {
         try {
           result = await overlay.onClientMessage(current, this.contextFor(overlay));
         } catch (err) {
-          span.recordError(err);
-          span.end();
-          this.hooks.log("error", overlay.name, "client overlay threw", errorInfo(err));
           // Fail policy depends on overlay kind. "gate" overlays enforce
           // a security boundary (block, sqlGuard); if they crash on a
           // malformed payload, continuing would forward the unchecked
-          // request to the target — defeating the whole point. Respond
-          // with an internal-error JSON-RPC and stop processing.
+          // message to the target. Return an internal error to the side
+          // awaiting a response; notifications are dropped without one.
           // "observer" overlays enhance but do not gate; a crash there
           // should not break the caller.
-          if (overlay.kind === "gate" && isRequestMessage(current)) {
+          if (overlay.kind === "gate") {
+            const failure = classifyGateFailure(err);
+            const message = `januscope: gate overlay '${overlay.name}' failed (${failure}); message refused for safety.`;
+            span.recordError(new Error(message));
+            span.end();
+            this.hooks.log("error", overlay.name, "client gate failed; message refused", {
+              failure,
+            });
             rootSpan.setAttribute("januscope.outcome", "gate_failure");
-            rootSpan.setStatus("error", `gate overlay '${overlay.name}' failed`);
-            this.hooks.onForwardToClient(
-              makeInternalErrorResponse(
-                (current as { id: number | string }).id,
-                `januscope: gate overlay '${overlay.name}' failed; message refused for safety.`,
-              ),
-            );
+            rootSpan.setStatus("error", message);
+            if ("id" in current) {
+              const id =
+                typeof current.id === "string" ||
+                typeof current.id === "number" ||
+                current.id === null
+                  ? current.id
+                  : null;
+              const response = makeInternalErrorResponse(id, message);
+              if (isRequestMessage(current)) this.hooks.onForwardToClient(response);
+              else this.hooks.onForwardToTarget(response);
+            }
             return;
           }
           // observer overlay: fail open, continue.
+          span.recordError(err);
+          span.end();
+          this.hooks.log("error", overlay.name, "client overlay threw", errorInfo(err));
           continue;
         }
         span.setAttribute("januscope.overlay.result", result.kind);
@@ -280,6 +300,32 @@ export class Pipeline {
         try {
           result = await overlay.onServerMessage(current, this.contextFor(overlay));
         } catch (err) {
+          if (overlay.kind === "gate") {
+            // Exception messages can contain the very payload that failed
+            // redaction (for example a DataCloneError). Keep diagnostics
+            // useful without copying that payload into logs or telemetry.
+            const failure = classifyGateFailure(err);
+            const message = `januscope: gate overlay '${overlay.name}' failed (${failure}); message refused for safety.`;
+            span.recordError(new Error(message));
+            span.end();
+            this.hooks.log("error", overlay.name, "server gate failed; message refused", {
+              failure,
+            });
+            rootSpan.setAttribute("januscope.outcome", "gate_failure");
+            rootSpan.setStatus("error", message);
+            if ("id" in current) {
+              const id =
+                typeof current.id === "string" ||
+                typeof current.id === "number" ||
+                current.id === null
+                  ? current.id
+                  : null;
+              const response = makeInternalErrorResponse(id, message);
+              if (isRequestMessage(current)) this.hooks.onForwardToTarget(response);
+              else this.hooks.onForwardToClient(response);
+            }
+            return;
+          }
           span.recordError(err);
           span.end();
           this.hooks.log("error", overlay.name, "server overlay threw", errorInfo(err));

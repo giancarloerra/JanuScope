@@ -10,7 +10,7 @@ By submitting a pull request, you agree to the [Contributor License Agreement (C
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js `^22.21.0 || >=24.0.0` for the complete development and release toolchain, matching the locked release tools. The published package's runtime minimum remains Node.js 20.0.0.
 - Git
 
 Optional (for live-probing bundled Lenses against real MCPs):
@@ -113,7 +113,7 @@ Prefix with the type and optional scope, then a short imperative description.
 
 - **TypeScript** with strict mode enabled
 - **ESM** (ES modules) — use `.js` extensions in imports
-- **Overlay shape** — new overlays implement the `Overlay` interface in `src/pipeline.ts`. Set `kind: "gate"` if the overlay enforces a security boundary (block, sqlGuard); set `kind: "observer"` (or omit) for enhancers (audit, redact, dbSchema, instructions). Gate overlays fail-closed on exception; observers fail-open
+- **Overlay shape** — new overlays implement the `Overlay` interface in `src/pipeline.ts`. Set `kind: "gate"` if the overlay enforces a security boundary (block, rateLimit, sqlGuard, redact, toolSurface); set `kind: "observer"` (or omit) for enhancers (audit, dbSchema, instructions). Gate overlays refuse the message on exception in either direction; observer failures are logged and forwarding continues
 - **Logging** — call `ctx.log(level, scope, message, extra)` from inside overlay handlers; never `console.log` in the engine
 - **Error messages** — user-friendly, actionable. If a lens config is wrong, the error should name the field and the file
 - **JSDoc** on all exported functions

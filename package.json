@@ -2,7 +2,7 @@
   "name": "januscope",
   "mcpName": "io.github.giancarloerra/januscope",
   "version": "0.4.4",
-  "description": "JanuScope: the local MCP policy proxy. One YAML wraps any MCP server with policy, redaction, audit, rate-limiting, and database-schema injection. No hosted gateway in the data path. Block dangerous tools, scrub sensitive output, audit every call.",
+  "description": "Local MCP policy proxy with response redaction, call auditing, tool restrictions, and schema context. Wrap an existing server with a YAML policy.",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -40,9 +40,14 @@
     "lenses/databases",
     "lenses/dev-tools",
     "lenses/saas",
+    "docs/setup.md",
+    "docs/lenses.md",
+    "docs/benchmarks.md",
+    "docs/sensitive-data.md",
     "schemas",
     "januscope.png",
     "README.md",
+    "SECURITY.md",
     "CHANGELOG.md",
     "LICENSE",
     "LICENSE-COMMERCIAL",
@@ -63,12 +68,13 @@
     "format": "prettier --write \"**/*.{ts,md,json,yaml,yml}\"",
     "format:check": "prettier --check \"**/*.{ts,md,json,yaml,yml}\"",
     "validate:lenses": "tsx scripts/validate-lenses.ts",
+    "validate:metadata": "tsx scripts/sync-mcp-metadata.ts --check",
     "validate:lenses:strict": "tsx scripts/validate-lenses.ts --strict",
     "validate:lenses:probe": "tsx scripts/validate-lenses.ts --probe",
     "bench:overhead": "tsx scripts/bench-overhead.ts",
     "release": "release-it",
     "release:dry": "release-it --dry-run",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run validate:lenses && npm run build"
+    "prepublishOnly": "npm run validate:metadata && npm run typecheck && npm run lint && npm run format:check && npm test && npm run validate:lenses && npm run build"
   },
   "engines": {
     "node": ">=20.0.0"
