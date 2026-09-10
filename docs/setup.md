@@ -1,51 +1,53 @@
 # Setup and configuration
 
-Start with the [Postgres quick start](../README.md#quick-start). This guide covers other client formats, custom policies, and the full configuration reference. The [preset catalogue](./lenses.md) retains the existing upstream and wrapped entry for every bundled service.
+Start with [installing JanuScope](../README.md#install) and the [general quick start](../README.md#quick-start). This guide covers client formats, a worked PostgreSQL example, custom policies, and the full configuration reference. The [preset catalogue](./lenses.md) includes the existing upstream and wrapped entry for every bundled service.
 
 ## Client configuration
 
-JanuScope exposes a stdio MCP server. The `command` and `args` pattern is shared, but the surrounding configuration and environment-variable syntax belong to the client.
+JanuScope exposes a stdio MCP server. Pick a bundled Lens or an absolute path to your own YAML/JSON policy. In the templates below, replace `LENS_NAME` with that value and `my-server` with the existing entry's name. Preserve its credentials and other client settings. The [Lens catalogue](./lenses.md) documents each upstream's prerequisites, startup settings and any path/argument changes.
 
 ### Claude Code
 
-Use `.mcp.json` at the project root, as in the quick start. Claude Code expands `${DATABASE_URI}` from the environment in which it starts. Set it to your read-only database connection string before starting Claude Code; do not commit the actual credential. See [Claude Code's MCP configuration](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson).
+Use `.mcp.json` at the project root:
 
 ```json
 {
   "mcpServers": {
-    "postgres": {
+    "my-server": {
       "command": "npx",
-      "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
-      "env": { "DATABASE_URI": "${DATABASE_URI}" }
+      "args": ["-y", "januscope", "--config", "LENS_NAME"]
     }
   }
 }
 ```
 
+Keep the existing entry's environment variables and other options. Start a new Claude Code session and enable the project server when prompted. See [MCP configuration and environment variables](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson) and [project configuration and trust](https://code.claude.com/docs/en/mcp#project-scope).
+
 ### VS Code
 
-Use `.vscode/mcp.json`. VS Code uses `servers` and `${env:NAME}` syntax, so a Claude Code file cannot be pasted unchanged. Launch VS Code with `DATABASE_URI` in its environment, or use the client's own secure-input configuration. See [VS Code's MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
+Use `.vscode/mcp.json`:
 
 ```json
 {
   "servers": {
-    "postgres": {
+    "my-server": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
-      "env": { "DATABASE_URI": "${env:DATABASE_URI}" }
+      "args": ["-y", "januscope", "--config", "LENS_NAME"]
     }
   }
 }
 ```
 
+Keep the existing server's environment and other options. VS Code uses `servers` and `${env:NAME}` syntax; a Claude Code configuration file cannot be pasted unchanged. See [VS Code's MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
+
 ### Other clients and Windows
 
-For clients with a `mcpServers` container, use the individual entry from the [preset catalogue](./lenses.md), then supply credentials using that client's supported environment or secret-input mechanism. `${DATABASE_URI}` is Claude Code syntax in a client JSON file; JanuScope's own `${VAR}` substitution applies only inside a policy YAML/JSON file.
+Use your client's stdio MCP-server settings. With a global JanuScope installation, set `command` to `januscope` and `args` to `["--config", "LENS_NAME"]`. With `npx`, use `command: "npx"` and `args: ["-y", "januscope", "--config", "LENS_NAME"]`. Keep the original server entry's name, environment, credentials and other host settings. Supply secrets using the client's own environment or secret-input mechanism.
 
-The client process must be able to find both `npx` and the preset's executable. A GUI client may have a different PATH from the terminal. An absolute `command` path or a client-supported PATH override can resolve that difference. On Windows, use the client's documented handling of `.cmd` launchers; do not assume that a Unix `npx` example is a tested Windows configuration.
+Your client must be able to find the configured command and the upstream server's executable. A GUI client may have a different PATH from the terminal. Use absolute executable paths or a client-supported PATH override when necessary. On Windows, follow the client's documented handling of `.cmd` launchers; a Unix `npx` example is not a tested Windows configuration.
 
-When wrapping an existing server, preserve its name, credentials, startup settings, and other host options. Change the command and arguments to JanuScope, using the matching preset. Review preset constants and the SQLite/filesystem argument-to-environment exceptions in the catalogue. Restart the MCP connection after a change.
+Restart the MCP connection after replacing the original launch fields. JanuScope starts the wrapped server itself.
 
 ## Check a setup
 
@@ -666,6 +668,68 @@ Backstop: use a database role whose permissions exclude writes, DDL, administrat
 **What Node version?** Node 20+.
 
 **What is `mcp-remote` and do I need to install it?** It is the external bridge used by the remote presets. `npx -y mcp-remote <url>` fetches and starts it. The bridge's network connections, authentication, and credential storage follow its own [documentation](https://github.com/geelen/mcp-remote). JanuScope does not make a remote service local or replace its authentication.
+
+## Example: PostgreSQL
+
+This example uses the `postgres-crystaldba` Lens. Its database and Python requirements belong to this particular upstream server.
+
+### Prerequisites
+
+- **Node.js 20+** with `npx` for JanuScope.
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** with `uvx` available to your MCP client. This starts [Postgres MCP Pro](https://github.com/crystaldba/postgres-mcp).
+- **A PostgreSQL connection using a read-only database role**, with no write, DDL, administrative, or unsafe function-execution privileges. If protected fields must never reach the model, also exclude access to those fields through [approved columns or vetted views](./sensitive-data.md). Review the [preset prerequisites](../lenses/databases/postgres-crystaldba/README.md#prerequisites).
+
+Set `DATABASE_URI` in the environment to your read-only PostgreSQL connection string before starting the check and client. The preset reads the `public` schema, includes schema comments in tool descriptions, and logs to `~/mcp-audit-postgres.jsonl`. Inspect the policy before connecting it to sensitive data:
+
+```bash
+npx -y januscope lenses show postgres-crystaldba
+npx -y januscope check --config postgres-crystaldba
+```
+
+The check starts the target and discovers tools without invoking upstream MCP tools. Schema loading also connects to the configured database and inspects metadata. A successful check does not prove backend permissions or every redaction rule. Package runners may download the upstream on first use.
+
+Configure the wrapped server using the appropriate client format below, restart its MCP connection, then ask the client:
+
+> Using the postgres execute_sql tool, run `SELECT 1 AS connection_ok`.
+
+A successful connection returns `connection_ok: 1`. Inspect `~/mcp-audit-postgres.jsonl` for the call's outcome. On macOS or Linux:
+
+```bash
+tail -n 5 ~/mcp-audit-postgres.jsonl
+```
+
+### PostgreSQL with Claude Code
+
+Use `.mcp.json` at the project root. Claude Code expands `${DATABASE_URI}` from the environment in which it starts. Set it to your read-only database connection string before starting Claude Code; do not commit the actual credential. Start a new Claude Code session and enable the project server when prompted. See [Claude Code's MCP configuration](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson) and [project configuration and trust](https://code.claude.com/docs/en/mcp#project-scope).
+
+```json
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
+      "env": { "DATABASE_URI": "${DATABASE_URI}" }
+    }
+  }
+}
+```
+
+### PostgreSQL with VS Code
+
+Use `.vscode/mcp.json`. VS Code uses `servers` and `${env:NAME}` syntax, so a Claude Code file cannot be pasted unchanged. Launch VS Code with `DATABASE_URI` in its environment, or use the client's own secure-input configuration. See [VS Code's MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
+
+```json
+{
+  "servers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "januscope", "--config", "postgres-crystaldba"],
+      "env": { "DATABASE_URI": "${env:DATABASE_URI}" }
+    }
+  }
+}
+```
 
 ## Historical benchmarks
 
