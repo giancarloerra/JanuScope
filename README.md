@@ -42,6 +42,10 @@ JanuScope runs locally. The upstream server and your client's model provider can
 
 ## Why JanuScope
 
+<a id="three-problems-that-hit-every-real-mcp-deployment"></a>
+<a id="todays-options-and-whats-wrong-with-them"></a>
+<a id="what-makes-januscope-different"></a>
+
 Use it when an MCP server's native controls leave a gap: sensitive values in responses, a missing call log, repeated context discovery, or policies that need to be applied consistently across several servers.
 
 A Lens can block selected tools, redact matching fields and patterns, record calls, and add instructions or context. Database Lenses can also supply schema information and filter SQL. Choose the controls you need while retaining the backend's own permissions and native restrictions.
@@ -200,6 +204,8 @@ const config = loadConfig("./policy.yaml");
 await runOverlay({ config });
 ```
 
+<a id="credential-vault-references-optional"></a>
+
 Use `loadConfigAsync` for [secret-store references](./docs/setup.md#credential-vault-references-optional). [Library details](./docs/setup.md#library-api).
 
 ## What it does
@@ -215,9 +221,20 @@ Use `loadConfigAsync` for [secret-store references](./docs/setup.md#credential-v
 | `rateLimit`                                 | Caps per-tool request rates.                                                                                                     |
 | `classification` / `firstRun` / `telemetry` | Adds sensitivity labels, optional approval fingerprints, or configured tracing.                                                  |
 
+<a id="under-the-hood-the-details-that-actually-work"></a>
+
 [Detailed behavior](./docs/setup.md#what-it-does) · [Configuration reference](./docs/setup.md#configuration-reference)
 
 ## Logging & audit
+
+<a id="sink"></a>
+<a id="event-schema"></a>
+<a id="identity-attribution"></a>
+<a id="machine-readable-schema"></a>
+<a id="why-the-hashed-args-default"></a>
+<a id="reading-the-log"></a>
+<a id="ordering-guarantee"></a>
+<a id="retention--rotation"></a>
 
 Enable `audit` in a policy and choose its destination with `audit.sink`, as in the custom policy above. Bundled Lenses specify their own destinations. Arguments are hashed by default. New files use mode `0600`; existing file permissions are preserved. Upstream error messages are recorded before response redaction and may contain sensitive values. Audit write errors are logged without stopping forwarding, so monitor the sink when completeness matters.
 
@@ -228,6 +245,8 @@ Use a file or `stderr` for CLI audit output. `stdout` carries the MCP protocol. 
 Skills and client instructions guide tool use. JanuScope checks traffic on a wrapped MCP connection. Neither replaces backend permissions or controls another terminal tool or MCP server. [Details](./docs/setup.md#januscope-vs-claude-skills).
 
 ## FAQ
+
+<a id="why-not-just-set---access-moderestricted-on-postgres-mcp-and-call-it-done"></a>
 
 - **Only need to prevent writes?** Start with the backend's permissions and the MCP's native restricted mode.
 - **Does data stay on this machine?** The proxy runs locally. Databases, remote upstreams, configured secret stores or telemetry, and the client's model provider can still receive data.
@@ -290,6 +309,11 @@ An audit outcome has this shape. Values below are illustrative; successful respo
 Redaction only covers matching output fields and patterns. Aliases, encodings and calculated results can remove those matches. Requests outside this wrapped MCP also require separate controls. [Full security model](./SECURITY.md#security-model).
 
 <a id="benchmarks--measured-not-modelled"></a>
+<a id="benchmarks-measured-not-modelled"></a>
+<a id="performance-typical-analytical-question"></a>
+<a id="multi-question-session-amortised-view"></a>
+<a id="safety-three-adversarial-prompts"></a>
+<a id="why-these-numbers-compound"></a>
 
 ## Benchmarks: accuracy, overhead and protection
 
