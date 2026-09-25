@@ -779,6 +779,8 @@ The original report described prompt caching as enabled. The 84% figure is the r
 
 ## Release metadata
 
+JanuScope runtime supports Node.js 20 and later. Normal validation on Node.js 20 requires Node.js 20.19.0 or later. Maintainer release commands (`npm run release` and `npm run release:dry`) use development-only tooling and must run on Node.js 22.22.2. This release-only requirement does not change the runtime support contract.
+
 `package.json` is the version source for `server.json`. The existing release-it workflow runs `tsx scripts/sync-mcp-metadata.ts` after the npm version bump and before the release commit. From the repository root, `npm run validate:metadata` checks for drift without writing; the sync script repairs only the manifest versions.
 
 The manifest uses the [MCP Registry schema](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json). `--config` is an argument to the JanuScope package, not its `npx` runtime. Keeping the manifest valid does not publish it to the registry; publication is a separate action.
