@@ -198,6 +198,19 @@ describe("check CLI real process boundaries", () => {
     },
   );
 
+  it("reports Zod 4 issue codes when configuration validation fails before startup", async () => {
+    const result = await check(configFile({ classification: "top-secret" }).path);
+    expect(result.code).toBe(1);
+    expect(result.report.ok).toBe(false);
+    expect(result.report.checks).toEqual([
+      {
+        name: "configuration",
+        status: "fail",
+        message: "Invalid configuration: classification (invalid_value).",
+      },
+    ]);
+  });
+
   it("validates env-substituted enum values using the production loader contract", async () => {
     const fixture = configFile({
       redact: { rules: [{ regex: "synthetic" }], applyTo: "${JANUSCOPE_CHECK_MODE_TEST}" },

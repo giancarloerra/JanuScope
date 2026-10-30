@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, substituteEnv, validateConfig } from "../src/config.js";
+import { loadConfig, OverlayConfigSchema, substituteEnv, validateConfig } from "../src/config.js";
 
 describe("config: validateConfig", () => {
   it("accepts a minimal valid config", () => {
@@ -10,6 +10,18 @@ describe("config: validateConfig", () => {
       target: { command: "node", args: ["server.js"] },
     });
     expect(config.target.command).toBe("node");
+    expect(config.target.env).toBeUndefined();
+  });
+
+  it.each([{}, { FOO: "bar", EMPTY: "" }])("preserves string-valued target env maps: %j", (env) => {
+    const config = validateConfig({ target: { command: "node", env } });
+    expect(config.target.env).toEqual(env);
+  });
+
+  it("rejects non-string target env values instead of coercing them", () => {
+    expect(() => validateConfig({ target: { command: "node", env: { PORT: 5432 } } })).toThrow(
+      /target\.env\.PORT/,
+    );
   });
 
   it("rejects missing target", () => {
@@ -37,7 +49,10 @@ describe("config: validateConfig", () => {
     expect(config.block).toEqual(["execute", "admin_*"]);
     expect(config.audit?.logRawArgs).toBe(false);
     expect(config.dbSchema?.format).toBe("markdown");
+    expect(config.dbSchema?.includeComments).toBe(true);
+    expect(config.dbSchema?.refresh).toBe("startup");
     expect(config.redact?.replacement).toBe("[REDACTED]");
+    expect(config.redact?.applyTo).toBe("text");
   });
 
   it("rejects dbSchema with both tables and excludeTables", () => {
@@ -162,6 +177,29 @@ describe("config: validateConfig", () => {
     });
     expect(cfg.telemetry?.otel?.endpoint).toBe("http://otel-collector:4318/v1/traces");
     expect(cfg.telemetry?.otel?.serviceName).toBe("my-janu");
+    expect(cfg.telemetry?.otel?.headers).toEqual({ Authorization: "Bearer x" });
+  });
+
+  it.each([undefined, {}, { "X-Service": "januscope", "X-Empty": "" }])(
+    "preserves optional string-valued telemetry headers: %j",
+    (headers) => {
+      const cfg = validateConfig({
+        target: { command: "node" },
+        telemetry: { otel: { endpoint: "http://otel-collector:4318/v1/traces", headers } },
+      });
+      expect(cfg.telemetry?.otel?.headers).toEqual(headers);
+    },
+  );
+
+  it("rejects non-string telemetry headers instead of coercing them", () => {
+    expect(() =>
+      validateConfig({
+        target: { command: "node" },
+        telemetry: {
+          otel: { endpoint: "http://otel-collector:4318/v1/traces", headers: { "X-Service": 1 } },
+        },
+      }),
+    ).toThrow(/telemetry\.otel\.headers\.X-Service/);
   });
 
   it("rejects a telemetry.otel block without an endpoint", () => {
@@ -200,6 +238,31 @@ describe("config: validateConfig", () => {
         },
       }),
     ).toThrow(/unresolved secret reference/);
+  });
+});
+
+describe("config: exported Zod 4 error contract", () => {
+  it.each([
+    {
+      input: { target: { command: "node" }, classification: "top-secret" },
+      code: "invalid_value",
+      path: ["classification"],
+    },
+    {
+      input: { target: { command: "node" }, telemetry: { otel: { endpoint: "not a url" } } },
+      code: "invalid_format",
+      path: ["telemetry", "otel", "endpoint"],
+    },
+    {
+      input: { target: { command: "node" }, redact: { rules: [{}] } },
+      code: "invalid_union",
+      path: ["redact", "rules", 0, "kind"],
+    },
+  ])("exposes $code through error.issues at $path", ({ input, code, path }) => {
+    const result = OverlayConfigSchema.safeParse(input);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([expect.objectContaining({ code, path })]);
+    expect(result.error).not.toHaveProperty("errors");
   });
 });
 

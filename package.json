@@ -81,7 +81,7 @@
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "optionalDependencies": {
     "better-sqlite3": "^12.9.0",
