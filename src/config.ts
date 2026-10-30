@@ -24,7 +24,7 @@ const AuditSinkSchema = z.string().min(1);
 const TargetSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   cwd: z.string().optional(),
 });
 
@@ -173,7 +173,7 @@ const ClassificationSchema = z.enum(["public", "internal", "sensitive"]);
 const OtelSchema = z.object({
   endpoint: z.string().url(),
   serviceName: z.string().min(1).optional(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
 });
 
 const TelemetrySchema = z.object({

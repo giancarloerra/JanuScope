@@ -604,6 +604,8 @@ await runOverlay({ config });
 
 The `runOverlay` promise resolves when both the client and the target streams have closed. See `src/index.ts` for the full public surface.
 
+Configuration validation uses Zod 4. The policy-file format and configuration defaults are unchanged. The exported `OverlayConfigSchema` and `LensMetadataSchema` use the Zod 4 schema and error API: read validation details from `error.issues`, not the removed Zod 3 `error.errors` alias. Issue codes include `invalid_value` instead of `invalid_enum_value`, `invalid_format` instead of `invalid_string`, and `invalid_union` instead of `invalid_union_discriminator`. Validation error wording also changes, and `januscope check` reports the Zod 4 issue codes. Consumers inspecting these errors must update their handling; see the [Zod 4 migration guide](https://zod.dev/v4/changelog).
+
 ## JanuScope vs Claude Skills
 
 Client instructions and Skills can guide tool usage. JanuScope applies configured checks on the wrapped MCP connection.

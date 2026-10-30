@@ -131,6 +131,9 @@ describe("LensMetadataSchema", () => {
       status: "active",
     });
     expect(r.success).toBe(false);
+    expect(r.error?.issues).toEqual([
+      expect.objectContaining({ code: "invalid_value", path: ["category"] }),
+    ]);
   });
 
   it("rejects an unknown status", () => {
